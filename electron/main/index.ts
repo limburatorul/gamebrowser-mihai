@@ -60,6 +60,7 @@ const userDataPath = app.getPath('userData')
 const libraryFile = join(userDataPath, 'library.json')
 const coversDir = join(userDataPath, 'covers')
 const iconsDir = join(userDataPath, 'icons')
+const screenshotsDir = join(userDataPath, 'screenshots')
 const settingsFile = join(userDataPath, 'settings.json')
 const categoriesFile = join(userDataPath, 'categories.json')
 
@@ -407,6 +408,33 @@ async function fetchSteamAppDetails(appid: number): Promise<SteamGameDetails | n
   } catch {
     return null
   }
+}
+
+// Downloads the Steam-hosted header image and screenshots into screenshotsDir
+// (cached by appid, so re-opening the same game's details doesn't re-fetch)
+// and rewrites the details object to point at the local copies instead of
+// the remote URLs - keeps them available offline and part of the backup zip.
+async function localizeSteamImages(appid: number, details: SteamGameDetails): Promise<SteamGameDetails> {
+  async function localize(url: string, filename: string): Promise<string | null> {
+    const dest = join(screenshotsDir, filename)
+    try {
+      await fs.access(dest)
+      return dest
+    } catch {
+      // not cached yet, fall through to download
+    }
+    return (await downloadImage(url, dest)) ? dest : null
+  }
+
+  const headerImage = details.headerImage ? await localize(details.headerImage, `${appid}-header.jpg`) : null
+
+  const screenshots: string[] = []
+  for (let i = 0; i < details.screenshots.length; i++) {
+    const local = await localize(details.screenshots[i], `${appid}-${i}.jpg`)
+    if (local) screenshots.push(local)
+  }
+
+  return { ...details, headerImage, screenshots }
 }
 
 async function fetchSteamMetadataForGame(game: Game, needsCover: boolean): Promise<boolean> {
@@ -946,7 +974,8 @@ async function runBackup(): Promise<BackupResult> {
         { zipPath: 'settings.json', fsPath: settingsFile },
         { zipPath: 'categories.json', fsPath: categoriesFile },
         { zipPath: 'covers', fsPath: coversDir, isDir: true },
-        { zipPath: 'icons', fsPath: iconsDir, isDir: true }
+        { zipPath: 'icons', fsPath: iconsDir, isDir: true },
+        { zipPath: 'screenshots', fsPath: screenshotsDir, isDir: true }
       ],
       dest
     )
@@ -1491,7 +1520,9 @@ function registerIpcHandlers(): void {
       if (!match) return null
       appid = match.appid
     }
-    return fetchSteamAppDetails(appid)
+    const details = await fetchSteamAppDetails(appid)
+    if (!details) return null
+    return localizeSteamImages(appid, details)
   })
 
   ipcMain.handle('categories:getAll', async (): Promise<Category[]> => categories)
@@ -1630,6 +1661,7 @@ if (gotSingleInstanceLock) {
   app.whenReady().then(async () => {
     await fs.mkdir(coversDir, { recursive: true })
     await fs.mkdir(iconsDir, { recursive: true })
+    await fs.mkdir(screenshotsDir, { recursive: true })
     await loadLibrary()
     await loadSettings()
     await loadCategories()

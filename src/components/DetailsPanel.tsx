@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Game, SteamGameDetails } from '@shared/types'
+import { toLocalFileUrl } from '../lib/localFile'
 
 interface Props {
   game: Game | null
@@ -10,10 +11,12 @@ export default function DetailsPanel({ game, onClose }: Props): JSX.Element {
   const [details, setDetails] = useState<SteamGameDetails | null>(null)
   const [loading, setLoading] = useState(false)
   const [notFound, setNotFound] = useState(false)
+  const [lightboxPath, setLightboxPath] = useState<string | null>(null)
 
   useEffect(() => {
     setDetails(null)
     setNotFound(false)
+    setLightboxPath(null)
     if (!game) return
     setLoading(true)
     let cancelled = false
@@ -31,6 +34,15 @@ export default function DetailsPanel({ game, onClose }: Props): JSX.Element {
       cancelled = true
     }
   }, [game?.id])
+
+  useEffect(() => {
+    if (!lightboxPath) return
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') setLightboxPath(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [lightboxPath])
 
   return (
     <aside className="details-panel">
@@ -52,7 +64,7 @@ export default function DetailsPanel({ game, onClose }: Props): JSX.Element {
       {game && !loading && details && (
         <div className="details-panel-body">
           {details.headerImage && (
-            <img src={details.headerImage} alt="" className="details-panel-banner" />
+            <img src={toLocalFileUrl(details.headerImage) ?? undefined} alt="" className="details-panel-banner" />
           )}
 
           {details.description && <p className="details-panel-description">{details.description}</p>}
@@ -100,12 +112,39 @@ export default function DetailsPanel({ game, onClose }: Props): JSX.Element {
             <>
               <div className="details-panel-heading">Screenshots</div>
               <div className="details-panel-screenshots">
-                {details.screenshots.map((url) => (
-                  <img key={url} src={url} alt="Screenshot" className="details-panel-screenshot" />
+                {details.screenshots.map((path) => (
+                  <img
+                    key={path}
+                    src={toLocalFileUrl(path) ?? undefined}
+                    alt="Screenshot"
+                    className="details-panel-screenshot"
+                    onClick={() => setLightboxPath(path)}
+                  />
                 ))}
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {lightboxPath && (
+        <div className="screenshot-lightbox-overlay" onClick={() => setLightboxPath(null)}>
+          <button
+            className="screenshot-lightbox-close"
+            title="Close"
+            onClick={(e) => {
+              e.stopPropagation()
+              setLightboxPath(null)
+            }}
+          >
+            ✕
+          </button>
+          <img
+            src={toLocalFileUrl(lightboxPath) ?? undefined}
+            alt="Screenshot"
+            className="screenshot-lightbox-img"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </aside>

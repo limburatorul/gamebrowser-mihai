@@ -6,6 +6,13 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.12.0',
+    changes: [
+      'Steam screenshots and banner images are now saved locally (in a screenshots folder) instead of loaded from the internet each time, so they load instantly and are included in your backups.',
+      'New: click a screenshot in the Game Details panel to view it enlarged, centered over the whole window — click outside it or the ✕ button (or press Escape) to close.'
+    ]
+  },
+  {
     version: '1.11.1',
     changes: [
       'Fix: the main Settings save button was silently dropping the library-sync toggle instead of persisting it.',
