@@ -13,7 +13,8 @@ import type {
   UpdateCheckResult,
   UpdateApplyResult,
   LibrarySyncEvent,
-  Category
+  Category,
+  SteamGameDetails
 } from '../../shared/types'
 
 const api: GameApi = {
@@ -34,6 +35,8 @@ const api: GameApi = {
   setExePath: (id: string) => ipcRenderer.invoke('games:setExePath', id),
   remove: (id: string) => ipcRenderer.invoke('games:remove', id),
   removeMany: (ids: string[]) => ipcRenderer.invoke('games:removeMany', ids),
+  uninstall: (id: string) => ipcRenderer.invoke('games:uninstall', id),
+  deleteFromDisk: (id: string) => ipcRenderer.invoke('games:deleteFromDisk', id),
   cleanAllNames: () => ipcRenderer.invoke('games:cleanAllNames'),
   fetchCovers: (): Promise<CoverFetchResult> => ipcRenderer.invoke('games:fetchCovers'),
   fetchCoverForOne: (id: string) => ipcRenderer.invoke('games:fetchCoverForOne', id),
@@ -71,6 +74,7 @@ const api: GameApi = {
   checkForUpdate: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('update:check'),
   downloadUpdateAndRestart: (assetUrl: string, assetSize: number, version: string): Promise<UpdateApplyResult> =>
     ipcRenderer.invoke('update:downloadAndRestart', assetUrl, assetSize, version),
+  getSteamDetails: (id: string): Promise<SteamGameDetails | null> => ipcRenderer.invoke('games:getSteamDetails', id),
   getCategories: (): Promise<Category[]> => ipcRenderer.invoke('categories:getAll'),
   createCategory: (name: string): Promise<Category> => ipcRenderer.invoke('categories:create', name),
   renameCategory: (id: string, name: string): Promise<Category | null> =>

@@ -23,6 +23,7 @@ import ScanProgressOverlay from './components/ScanProgressOverlay'
 import InfoDialog from './components/InfoDialog'
 import SettingsDialog from './components/SettingsDialog'
 import ContextMenu from './components/ContextMenu'
+import DetailsPanel from './components/DetailsPanel'
 import AboutDialog from './components/AboutDialog'
 import DashboardDialog from './components/DashboardDialog'
 import UpdateDialog from './components/UpdateDialog'
@@ -34,6 +35,7 @@ import { mixHex, hexToRgbString } from './lib/color'
 import { CHANGELOG, getChangesSince, type ChangelogEntry } from './lib/changelog'
 
 const LAST_SEEN_VERSION_KEY = 'gb_lastSeenVersion'
+const PLATFORM_SOURCES = new Set<Game['source']>(['steam', 'epic', 'gog'])
 
 export default function App(): JSX.Element {
   const [games, setGames] = useState<Game[]>([])
@@ -69,6 +71,14 @@ export default function App(): JSX.Element {
   const [savingSettings, setSavingSettings] = useState(false)
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
   const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [confirmUninstallId, setConfirmUninstallId] = useState<string | null>(null)
+  const [uninstalling, setUninstalling] = useState(false)
+  const [confirmDeleteDiskId, setConfirmDeleteDiskId] = useState<string | null>(null)
+  const [deletingDisk, setDeletingDisk] = useState(false)
+  const [confirmBulkUninstall, setConfirmBulkUninstall] = useState(false)
+  const [bulkUninstalling, setBulkUninstalling] = useState(false)
+  const [confirmBulkDeleteDisk, setConfirmBulkDeleteDisk] = useState(false)
+  const [bulkDeletingDisk, setBulkDeletingDisk] = useState(false)
   const [tileWidth, setTileWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('tileWidth'))
     return saved >= 110 && saved <= 260 ? saved : 180
@@ -82,6 +92,7 @@ export default function App(): JSX.Element {
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [whatsNew, setWhatsNew] = useState<{ title: string; entries: ChangelogEntry[] } | null>(null)
+  const [detailsPanelOpen, setDetailsPanelOpen] = useState(false)
 
   useEffect(() => {
     localStorage.setItem('tileWidth', String(tileWidth))
@@ -161,6 +172,10 @@ export default function App(): JSX.Element {
     candidates !== null ||
     editingId !== null ||
     confirmBulkDelete ||
+    confirmUninstallId !== null ||
+    confirmDeleteDiskId !== null ||
+    confirmBulkUninstall ||
+    confirmBulkDeleteDisk ||
     infoMessage !== null ||
     aboutOpen ||
     dashboardOpen ||
@@ -548,6 +563,22 @@ export default function App(): JSX.Element {
     void window.api.update(id, { rating })
   }
 
+  function handleBulkRate(rating: number | null): void {
+    for (const id of selectedIds) {
+      void window.api.update(id, { rating })
+    }
+  }
+
+  async function handleBulkAddToCategory(categoryId: string): Promise<void> {
+    await Promise.all(
+      [...selectedIds].map((id) => {
+        const game = games.find((g) => g.id === id)
+        if (!game || game.categoryIds.includes(categoryId)) return Promise.resolve(null)
+        return window.api.update(id, { categoryIds: [...game.categoryIds, categoryId] })
+      })
+    )
+  }
+
   function handleEdit(id: string): void {
     setEditingId(id)
   }
@@ -607,6 +638,76 @@ export default function App(): JSX.Element {
     }
   }
 
+  async function handleConfirmUninstall(): Promise<void> {
+    if (!confirmUninstallId) return
+    setUninstalling(true)
+    try {
+      const result = await window.api.uninstall(confirmUninstallId)
+      if (!result.ok) {
+        setInfoMessage({ title: 'Uninstall', message: result.error ?? 'Could not start the uninstaller.' })
+      }
+    } finally {
+      setUninstalling(false)
+      setConfirmUninstallId(null)
+    }
+  }
+
+  async function handleConfirmDeleteDisk(): Promise<void> {
+    if (!confirmDeleteDiskId) return
+    const id = confirmDeleteDiskId
+    setDeletingDisk(true)
+    try {
+      const result = await window.api.deleteFromDisk(id)
+      if (!result.ok) {
+        setInfoMessage({ title: 'Delete from Disk', message: result.error ?? 'Could not delete the game files.' })
+      } else {
+        setSelectedIds((prev) => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+      }
+    } finally {
+      setDeletingDisk(false)
+      setConfirmDeleteDiskId(null)
+    }
+  }
+
+  async function handleConfirmBulkUninstall(): Promise<void> {
+    setBulkUninstalling(true)
+    try {
+      const targets = games.filter((g) => selectedIds.has(g.id) && PLATFORM_SOURCES.has(g.source))
+      const errors: string[] = []
+      for (const g of targets) {
+        const result = await window.api.uninstall(g.id)
+        if (!result.ok) errors.push(`${g.name}: ${result.error ?? 'failed'}`)
+      }
+      if (errors.length > 0) setInfoMessage({ title: 'Uninstall', message: errors.join('\n') })
+    } finally {
+      setBulkUninstalling(false)
+      setConfirmBulkUninstall(false)
+    }
+  }
+
+  async function handleConfirmBulkDeleteDisk(): Promise<void> {
+    setBulkDeletingDisk(true)
+    try {
+      const targets = games.filter(
+        (g) => selectedIds.has(g.id) && (g.source === 'manual' || g.source === 'folder-scan')
+      )
+      const errors: string[] = []
+      for (const g of targets) {
+        const result = await window.api.deleteFromDisk(g.id)
+        if (!result.ok) errors.push(`${g.name}: ${result.error ?? 'failed'}`)
+      }
+      if (errors.length > 0) setInfoMessage({ title: 'Delete from Disk', message: errors.join('\n') })
+      setSelectedIds(new Set())
+    } finally {
+      setBulkDeletingDisk(false)
+      setConfirmBulkDeleteDisk(false)
+    }
+  }
+
   const editingGame = games.find((g) => g.id === editingId) ?? null
 
   return (
@@ -649,6 +750,8 @@ export default function App(): JSX.Element {
         onFetchCovers={handleFetchCovers}
         onCleanNames={handleCleanNames}
         onOpenSettings={() => setSettingsOpen(true)}
+        detailsPanelOpen={detailsPanelOpen}
+        onToggleDetailsPanel={() => setDetailsPanelOpen((v) => !v)}
         tileWidth={tileWidth}
         onTileWidthChange={setTileWidth}
         genres={availableGenres}
@@ -696,6 +799,9 @@ export default function App(): JSX.Element {
             onLaunch={handleLaunch}
           />
         </main>
+        {detailsPanelOpen && (
+          <DetailsPanel game={selectedGame} onClose={() => setDetailsPanelOpen(false)} />
+        )}
       </div>
 
       {selectedGame && (
@@ -708,16 +814,29 @@ export default function App(): JSX.Element {
           onEdit={handleEdit}
           onSetCover={handleSetCover}
           onRemove={handleRemove}
+          onUninstall={setConfirmUninstallId}
+          onDeleteFromDisk={setConfirmDeleteDiskId}
         />
       )}
 
-      {selectedIds.size > 1 && (
-        <BulkActionsBar
-          count={selectedIds.size}
-          onClear={() => setSelectedIds(new Set())}
-          onDelete={() => setConfirmBulkDelete(true)}
-        />
-      )}
+      {selectedIds.size > 1 &&
+        (() => {
+          const selectedGames = games.filter((g) => selectedIds.has(g.id))
+          return (
+            <BulkActionsBar
+              count={selectedIds.size}
+              categories={categories}
+              canUninstall={selectedGames.some((g) => PLATFORM_SOURCES.has(g.source))}
+              canDeleteFromDisk={selectedGames.some((g) => g.source === 'manual' || g.source === 'folder-scan')}
+              onClear={() => setSelectedIds(new Set())}
+              onDelete={() => setConfirmBulkDelete(true)}
+              onAddToCategory={handleBulkAddToCategory}
+              onRate={handleBulkRate}
+              onUninstall={() => setConfirmBulkUninstall(true)}
+              onDeleteFromDisk={() => setConfirmBulkDeleteDisk(true)}
+            />
+          )
+        })()}
 
       {contextMenu &&
         (() => {
@@ -735,6 +854,8 @@ export default function App(): JSX.Element {
               onEdit={handleEdit}
               onSetCover={handleSetCover}
               onRemove={handleRemove}
+              onUninstall={setConfirmUninstallId}
+              onDeleteFromDisk={setConfirmDeleteDiskId}
             />
           )
         })()}
@@ -821,6 +942,62 @@ export default function App(): JSX.Element {
           busy={bulkDeleting}
           onCancel={() => setConfirmBulkDelete(false)}
           onConfirm={handleConfirmBulkDelete}
+        />
+      )}
+
+      {confirmUninstallId &&
+        (() => {
+          const game = games.find((g) => g.id === confirmUninstallId)
+          if (!game) return null
+          return (
+            <ConfirmDialog
+              title="Uninstall Game"
+              message={`Uninstall "${game.name}"? This hands off to its platform's own uninstaller — you'll confirm there too.`}
+              confirmLabel="Uninstall"
+              busy={uninstalling}
+              onCancel={() => setConfirmUninstallId(null)}
+              onConfirm={handleConfirmUninstall}
+            />
+          )
+        })()}
+
+      {confirmDeleteDiskId &&
+        (() => {
+          const game = games.find((g) => g.id === confirmDeleteDiskId)
+          if (!game) return null
+          return (
+            <ConfirmDialog
+              title="Delete from Disk"
+              message={`Permanently delete this entire folder? This cannot be undone.\n\n${game.installDir}`}
+              confirmLabel="Delete"
+              danger
+              busy={deletingDisk}
+              onCancel={() => setConfirmDeleteDiskId(null)}
+              onConfirm={handleConfirmDeleteDisk}
+            />
+          )
+        })()}
+
+      {confirmBulkUninstall && (
+        <ConfirmDialog
+          title="Uninstall Selected"
+          message="Uninstall the selected Steam/Epic/GOG games? This hands off to each platform's own uninstaller — you'll confirm there too."
+          confirmLabel="Uninstall"
+          busy={bulkUninstalling}
+          onCancel={() => setConfirmBulkUninstall(false)}
+          onConfirm={handleConfirmBulkUninstall}
+        />
+      )}
+
+      {confirmBulkDeleteDisk && (
+        <ConfirmDialog
+          title="Delete Selected from Disk"
+          message="Permanently delete the selected manually-added games and all their files from disk? This cannot be undone."
+          confirmLabel="Delete"
+          danger
+          busy={bulkDeletingDisk}
+          onCancel={() => setConfirmBulkDeleteDisk(false)}
+          onConfirm={handleConfirmBulkDeleteDisk}
         />
       )}
     </div>

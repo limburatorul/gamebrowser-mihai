@@ -15,6 +15,8 @@ interface Props {
   onFetchCovers: () => void
   onCleanNames: () => void
   onOpenSettings: () => void
+  detailsPanelOpen: boolean
+  onToggleDetailsPanel: () => void
   tileWidth: number
   onTileWidthChange: (v: number) => void
   genres: string[]
@@ -41,6 +43,8 @@ export default function TopBar({
   onFetchCovers,
   onCleanNames,
   onOpenSettings,
+  detailsPanelOpen,
+  onToggleDetailsPanel,
   tileWidth,
   onTileWidthChange,
   genres,
@@ -182,6 +186,14 @@ export default function TopBar({
             ☰
           </button>
         </div>
+
+        <button
+          className={`btn icon-btn ${detailsPanelOpen ? 'active' : ''}`}
+          title="Game Details Panel"
+          onClick={onToggleDetailsPanel}
+        >
+          ⓘ
+        </button>
 
         <button className="btn icon-btn" title="Settings" onClick={onOpenSettings}>
           ⚙

@@ -17,7 +17,8 @@ import type {
   UpdateCheckResult,
   UpdateApplyResult,
   LibrarySyncEvent,
-  Category
+  Category,
+  SteamGameDetails
 } from '../../shared/types'
 import { createZip, extractZip } from './zip'
 import { writeFileAtomic, copyFileAtomic } from './fsAtomic'
@@ -373,6 +374,41 @@ async function fetchSteamGenres(appid: number): Promise<string[]> {
   }
 }
 
+interface SteamAppDetailsResponse {
+  short_description?: string
+  header_image?: string
+  screenshots?: { id: number; path_thumbnail: string; path_full: string }[]
+  release_date?: { coming_soon: boolean; date: string }
+  developers?: string[]
+  publishers?: string[]
+  genres?: { description: string }[]
+  metacritic?: { score: number }
+}
+
+async function fetchSteamAppDetails(appid: number): Promise<SteamGameDetails | null> {
+  try {
+    const res = await net.fetch(`https://store.steampowered.com/api/appdetails?appids=${appid}&l=english`)
+    if (!res.ok) return null
+    const data = (await res.json()) as Record<string, { success: boolean; data?: SteamAppDetailsResponse }>
+    const entry = data[String(appid)]
+    if (!entry?.success || !entry.data) return null
+    const d = entry.data
+    return {
+      appid,
+      description: d.short_description ?? '',
+      headerImage: d.header_image ?? null,
+      screenshots: d.screenshots?.map((s) => s.path_full) ?? [],
+      releaseDate: d.release_date?.date ?? null,
+      developers: d.developers ?? [],
+      publishers: d.publishers ?? [],
+      genres: d.genres?.map((g) => g.description) ?? [],
+      metacriticScore: d.metacritic?.score ?? null
+    }
+  } catch {
+    return null
+  }
+}
+
 async function fetchSteamMetadataForGame(game: Game, needsCover: boolean): Promise<boolean> {
   const match = await searchSteamMatch(game.name)
   if (!match) return false
@@ -626,6 +662,8 @@ interface EpicManifest {
   displayName: string
   installLocation: string
   launchExecutable: string
+  catalogNamespace: string | null
+  catalogItemId: string | null
 }
 
 async function parseEpicManifests(): Promise<EpicManifest[]> {
@@ -641,8 +679,10 @@ async function parseEpicManifests(): Promise<EpicManifest[]> {
       const displayName = typeof data.DisplayName === 'string' ? data.DisplayName : null
       const installLocation = typeof data.InstallLocation === 'string' ? data.InstallLocation : null
       const launchExecutable = typeof data.LaunchExecutable === 'string' ? data.LaunchExecutable : null
+      const catalogNamespace = typeof data.CatalogNamespace === 'string' ? data.CatalogNamespace : null
+      const catalogItemId = typeof data.CatalogItemId === 'string' ? data.CatalogItemId : null
       if (appName && displayName && installLocation && launchExecutable) {
-        manifests.push({ appName, displayName, installLocation, launchExecutable })
+        manifests.push({ appName, displayName, installLocation, launchExecutable, catalogNamespace, catalogItemId })
       }
     } catch {
       // skip an unreadable/malformed .item manifest, move on to the next
@@ -1297,6 +1337,68 @@ function registerIpcHandlers(): void {
     }
   })
 
+  // Hands off to each platform's own uninstaller rather than deleting files
+  // ourselves - the platform needs to know too, or it'll keep thinking the
+  // game is installed. The library entry itself is left alone; the startup
+  // sync (syncPlatformLibraries) picks up the removal next launch once the
+  // platform confirms it's actually gone, so we never race an uninstall the
+  // user might still cancel in the platform's own confirmation dialog.
+  ipcMain.handle('games:uninstall', async (_e, id: string): Promise<{ ok: boolean; error?: string }> => {
+    const game = games.find((g) => g.id === id)
+    if (!game) return { ok: false, error: 'Game not found.' }
+    try {
+      if (game.source === 'steam' && game.steamAppId !== null) {
+        await shell.openExternal(`steam://uninstall/${game.steamAppId}`)
+        return { ok: true }
+      }
+      if (game.source === 'epic' && game.epicAppName !== null) {
+        const manifests = await parseEpicManifests()
+        const m = manifests.find((x) => x.appName === game.epicAppName)
+        if (!m?.catalogNamespace || !m?.catalogItemId) {
+          return { ok: false, error: 'Could not find this game in the Epic Games Launcher anymore.' }
+        }
+        await shell.openExternal(
+          `com.epicgames.launcher://apps/${m.catalogNamespace}%3A${m.catalogItemId}%3A${m.appName}?action=uninstall&silent=false`
+        )
+        return { ok: true }
+      }
+      if (game.source === 'gog') {
+        const entries = await safeReaddir(game.installDir)
+        const uninstaller = entries?.find((e) => e.isFile() && /^unins\d*\.exe$/i.test(e.name))
+        if (!uninstaller) return { ok: false, error: 'Could not find the GOG uninstaller in the install folder.' }
+        spawn(join(game.installDir, uninstaller.name), [], { detached: true, stdio: 'ignore' }).unref()
+        return { ok: true }
+      }
+      return { ok: false, error: 'Uninstall is only available for Steam, Epic, and GOG games.' }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // Only for manually-added/folder-scan games - Steam/Epic/GOG games must go
+  // through games:uninstall above instead, so the owning platform stays in
+  // sync with what's actually on disk.
+  ipcMain.handle('games:deleteFromDisk', async (_e, id: string): Promise<{ ok: boolean; error?: string }> => {
+    const idx = games.findIndex((g) => g.id === id)
+    if (idx === -1) return { ok: false, error: 'Game not found.' }
+    const game = games[idx]
+    if (game.source !== 'manual' && game.source !== 'folder-scan') {
+      return { ok: false, error: 'Delete from disk is only available for manually added games.' }
+    }
+    try {
+      await fs.rm(game.installDir, { recursive: true, force: true })
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+    games.splice(idx, 1)
+    await saveLibrary()
+    broadcastLibrary()
+    for (const p of [game.coverPath, game.iconPath]) {
+      if (p) fs.unlink(p).catch(() => {})
+    }
+    return { ok: true }
+  })
+
   ipcMain.handle('games:cleanAllNames', async (): Promise<{ changed: number }> => {
     let changed = 0
     for (const game of games) {
@@ -1377,6 +1479,18 @@ function registerIpcHandlers(): void {
     igdbToken = null
     await saveSettingsToDisk()
     return settings
+  })
+
+  ipcMain.handle('games:getSteamDetails', async (_e, id: string): Promise<SteamGameDetails | null> => {
+    const game = games.find((g) => g.id === id)
+    if (!game) return null
+    let appid = game.steamAppId
+    if (appid === null) {
+      const match = await searchSteamMatch(game.name)
+      if (!match) return null
+      appid = match.appid
+    }
+    return fetchSteamAppDetails(appid)
   })
 
   ipcMain.handle('categories:getAll', async (): Promise<Category[]> => categories)

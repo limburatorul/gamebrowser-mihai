@@ -12,7 +12,11 @@ interface Props {
   onEdit: (id: string) => void
   onSetCover: (id: string) => void
   onRemove: (id: string) => void
+  onUninstall: (id: string) => void
+  onDeleteFromDisk: (id: string) => void
 }
+
+const PLATFORM_SOURCES = new Set(['steam', 'epic', 'gog'])
 
 export default function GameDetails({
   game,
@@ -22,7 +26,9 @@ export default function GameDetails({
   onRate,
   onEdit,
   onSetCover,
-  onRemove
+  onRemove,
+  onUninstall,
+  onDeleteFromDisk
 }: Props): JSX.Element {
   return (
     <div className="details-bar">
@@ -35,7 +41,7 @@ export default function GameDetails({
           <span>Playtime: {formatPlaytime(game.playtimeSeconds)}</span>
           <span>Last played: {formatDate(game.lastPlayed)}</span>
           <span>Added: {formatDate(game.dateAdded)}</span>
-          <StarRating value={game.rating} onChange={(r) => onRate(game.id, r)} size="sm" />
+          <StarRating value={game.rating} onChange={(r) => onRate(game.id, r)} size="lg" />
         </div>
       </div>
       <div className="details-actions">
@@ -51,6 +57,15 @@ export default function GameDetails({
         <button className="btn" onClick={() => onEdit(game.id)}>
           Edit
         </button>
+        {PLATFORM_SOURCES.has(game.source) ? (
+          <button className="btn" onClick={() => onUninstall(game.id)}>
+            Uninstall
+          </button>
+        ) : (
+          <button className="btn btn-danger" onClick={() => onDeleteFromDisk(game.id)}>
+            Delete from Disk
+          </button>
+        )}
         <button className="btn btn-danger" onClick={() => onRemove(game.id)}>
           Remove
         </button>

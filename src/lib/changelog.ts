@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.11.0',
+    changes: [
+      'New: Game Details panel (toggle button in the top bar) — shows the Steam store description, screenshots, release date, developer/publisher, and genres for the selected game.',
+      'New: Uninstall for Steam/Epic/GOG games, and Delete from Disk for manually added games — available individually (details bar, right-click) and for multiple selected games at once.',
+      'Rating is now visible directly on grid tiles and list rows, not just in Edit.',
+      'Polish: bigger, more legible stars and text in the details bar; bigger, more legible title and playtime on grid tiles.'
+    ]
+  },
+  {
     version: '1.10.0',
     changes: [
       'New: personal 1-5 star rating on every game, set from the details bar or the Edit dialog — click the same star again to clear it. Also sortable by rating.',

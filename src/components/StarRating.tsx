@@ -1,7 +1,7 @@
 interface Props {
   value: number | null
   onChange?: (value: number | null) => void
-  size?: 'sm' | 'md'
+  size?: 'sm' | 'md' | 'lg'
 }
 
 const STARS = [1, 2, 3, 4, 5]

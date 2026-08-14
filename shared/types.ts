@@ -84,6 +84,18 @@ export interface ImportResult {
   error?: string
 }
 
+export interface SteamGameDetails {
+  appid: number
+  description: string
+  headerImage: string | null
+  screenshots: string[]
+  releaseDate: string | null
+  developers: string[]
+  publishers: string[]
+  genres: string[]
+  metacriticScore: number | null
+}
+
 export interface LibrarySyncEvent {
   source: 'Steam' | 'Epic' | 'GOG'
   added: number
@@ -125,6 +137,8 @@ export interface GameApi {
   setExePath(id: string): Promise<Game | null>
   remove(id: string): Promise<void>
   removeMany(ids: string[]): Promise<void>
+  uninstall(id: string): Promise<{ ok: boolean; error?: string }>
+  deleteFromDisk(id: string): Promise<{ ok: boolean; error?: string }>
   cleanAllNames(): Promise<{ changed: number }>
   fetchCovers(): Promise<CoverFetchResult>
   fetchCoverForOne(id: string): Promise<{ ok: boolean; found: boolean }>
@@ -145,6 +159,7 @@ export interface GameApi {
   importGogLibrary(): Promise<ImportResult>
   checkForUpdate(): Promise<UpdateCheckResult>
   downloadUpdateAndRestart(assetUrl: string, assetSize: number, version: string): Promise<UpdateApplyResult>
+  getSteamDetails(id: string): Promise<SteamGameDetails | null>
   getCategories(): Promise<Category[]>
   createCategory(name: string): Promise<Category>
   renameCategory(id: string, name: string): Promise<Category | null>

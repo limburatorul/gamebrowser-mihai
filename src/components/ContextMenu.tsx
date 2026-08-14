@@ -12,7 +12,11 @@ interface Props {
   onEdit: (id: string) => void
   onSetCover: (id: string) => void
   onRemove: (id: string) => void
+  onUninstall: (id: string) => void
+  onDeleteFromDisk: (id: string) => void
 }
+
+const PLATFORM_SOURCES = new Set(['steam', 'epic', 'gog'])
 
 export default function ContextMenu({
   game,
@@ -24,7 +28,9 @@ export default function ContextMenu({
   onToggleFavorite,
   onEdit,
   onSetCover,
-  onRemove
+  onRemove,
+  onUninstall,
+  onDeleteFromDisk
 }: Props): JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
@@ -76,6 +82,15 @@ export default function ContextMenu({
           Edit
         </button>
         <div className="context-menu-separator" />
+        {PLATFORM_SOURCES.has(game.source) ? (
+          <button className="context-menu-item" onClick={() => run(onUninstall)}>
+            Uninstall
+          </button>
+        ) : (
+          <button className="context-menu-item danger" onClick={() => run(onDeleteFromDisk)}>
+            Delete from Disk
+          </button>
+        )}
         <button className="context-menu-item danger" onClick={() => run(onRemove)}>
           Remove
         </button>

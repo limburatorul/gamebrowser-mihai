@@ -155,6 +155,7 @@ function GameTile({
         <CoverImage game={game} className="cover-img" />
         {running && <div className="running-badge">RUNNING</div>}
         {game.favorite && <div className="favorite-badge">★</div>}
+        {game.rating !== null && <div className="rating-badge">★ {game.rating}</div>}
         {!running && (
           <button
             className="tile-play-btn"
@@ -217,6 +218,7 @@ function ListRow({
       <div className="list-row-name">
         {game.name}
         {game.favorite && <span className="favorite-inline">★</span>}
+        {game.rating !== null && <span className="rating-inline">★ {game.rating}</span>}
       </div>
       <div className="list-row-playtime">{formatPlaytime(game.playtimeSeconds)}</div>
       {running && <div className="running-badge inline">RUNNING</div>}
