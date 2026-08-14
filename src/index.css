@@ -197,7 +197,7 @@ select {
 }
 
 .details-panel {
-  width: 380px;
+  width: 400px;
   flex-shrink: 0;
   background: var(--bg-1);
   border-left: 1px solid var(--border);
@@ -230,50 +230,73 @@ select {
 .details-panel-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
 }
 
-.details-panel-screenshots {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  margin: 0 -16px;
-  padding: 0 16px;
-}
-
-.details-panel-screenshot {
-  height: 110px;
-  width: auto;
-  flex-shrink: 0;
-  border-radius: 4px;
+.details-panel-banner {
+  width: 100%;
+  aspect-ratio: 460 / 215;
   object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
 }
 
 .details-panel-description {
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--text-1);
   white-space: pre-wrap;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
 }
 
 .details-panel-facts {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
 }
 
 .details-panel-fact {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 3px;
   font-size: 12.5px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
 }
 
 .details-panel-fact-label {
-  flex-shrink: 0;
-  width: 90px;
   color: var(--text-2);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.details-panel-heading {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.details-panel-screenshots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.details-panel-screenshot {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  object-fit: cover;
 }
 
 .sidebar {
@@ -1303,6 +1326,10 @@ select {
   font-size: 11px;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
+}
+
+.backup-list-error {
+  color: var(--danger);
 }
 
 .backup-list {

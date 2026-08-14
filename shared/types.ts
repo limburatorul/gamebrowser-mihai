@@ -79,6 +79,11 @@ export interface BackupEntry {
   createdAt: string
 }
 
+export interface BackupListResult {
+  entries: BackupEntry[]
+  error?: string
+}
+
 export interface ImportResult {
   imported: number
   error?: string
@@ -152,7 +157,7 @@ export interface GameApi {
   saveBackupPrefs(prefs: BackupPrefs): Promise<Settings>
   backupNow(): Promise<BackupResult>
   restoreFromBackup(): Promise<BackupResult | null>
-  listBackups(): Promise<BackupEntry[]>
+  listBackups(): Promise<BackupListResult>
   restoreFromPath(path: string): Promise<BackupResult>
   importSteamLibrary(): Promise<ImportResult>
   importEpicLibrary(): Promise<ImportResult>

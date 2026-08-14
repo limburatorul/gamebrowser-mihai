@@ -6,6 +6,14 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.11.1',
+    changes: [
+      'Fix: the main Settings save button was silently dropping the library-sync toggle instead of persisting it.',
+      'Fix: the backup list in Settings now shows why it\'s empty (no backups yet, or a read error) instead of just staying blank.',
+      'Game Details panel: screenshots moved below the description/info, laid out in a grid instead of a horizontal strip, plus a store banner image and card-styled info.'
+    ]
+  },
+  {
     version: '1.11.0',
     changes: [
       'New: Game Details panel (toggle button in the top bar) — shows the Steam store description, screenshots, release date, developer/publisher, and genres for the selected game.',

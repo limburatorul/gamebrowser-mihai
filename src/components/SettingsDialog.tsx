@@ -55,10 +55,14 @@ export default function SettingsDialog({
   const [backupIntervalHours, setBackupIntervalHours] = useState(initial.backupIntervalHours)
   const [librarySyncEnabled, setLibrarySyncEnabled] = useState(initial.librarySyncEnabled)
   const [backups, setBackups] = useState<BackupEntry[]>([])
+  const [backupsError, setBackupsError] = useState<string | null>(null)
   const [restoringPath, setRestoringPath] = useState<string | null>(null)
 
   function refreshBackups(): void {
-    void window.api.listBackups().then(setBackups)
+    void window.api.listBackups().then((result) => {
+      setBackups(result.entries)
+      setBackupsError(result.error ?? null)
+    })
   }
 
   useEffect(() => {
@@ -304,6 +308,14 @@ export default function SettingsDialog({
             Backup Now
           </button>
         </div>
+
+        {backupFolder && backupsError && (
+          <p className="settings-note backup-list-error">Could not read the backup folder: {backupsError}</p>
+        )}
+
+        {backupFolder && !backupsError && backups.length === 0 && (
+          <p className="settings-note">No backups yet — use &quot;Backup Now&quot; or enable periodic backup above.</p>
+        )}
 
         {backups.length > 0 && (
           <ul className="backup-list">

@@ -12,7 +12,7 @@ import type {
   Settings,
   BackupPrefs,
   BackupResult,
-  BackupEntry,
+  BackupListResult,
   ImportResult,
   UpdateCheckResult,
   UpdateApplyResult,
@@ -1474,7 +1474,8 @@ function registerIpcHandlers(): void {
       ...settings,
       igdbClientId: next.igdbClientId?.trim() ?? '',
       igdbClientSecret: next.igdbClientSecret?.trim() ?? '',
-      rawgApiKey: next.rawgApiKey?.trim() ?? ''
+      rawgApiKey: next.rawgApiKey?.trim() ?? '',
+      librarySyncEnabled: !!next.librarySyncEnabled
     }
     igdbToken = null
     await saveSettingsToDisk()
@@ -1564,8 +1565,8 @@ function registerIpcHandlers(): void {
     return restoreFromZip(result.filePaths[0])
   })
 
-  ipcMain.handle('backup:list', async (): Promise<BackupEntry[]> => {
-    if (!settings.backupFolder) return []
+  ipcMain.handle('backup:list', async (): Promise<BackupListResult> => {
+    if (!settings.backupFolder) return { entries: [] }
     try {
       const entries = await fs.readdir(settings.backupFolder, { withFileTypes: true })
       const zips = entries.filter((e) => e.isFile() && /^game-browser-backup-.*\.zip$/i.test(e.name))
@@ -1576,9 +1577,9 @@ function registerIpcHandlers(): void {
           return { name: e.name, path: full, sizeBytes: stat.size, createdAt: stat.mtime.toISOString() }
         })
       )
-      return withStats.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    } catch {
-      return []
+      return { entries: withStats.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) }
+    } catch (e) {
+      return { entries: [], error: e instanceof Error ? e.message : String(e) }
     }
   })
 
