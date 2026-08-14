@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Category } from '@shared/types'
 import { formatPlaytime } from '../lib/localFile'
-import { SteamIcon, EpicIcon, GogIcon } from './icons/PlatformIcons'
+import { SteamIcon, EpicIcon, GogIcon, UbisoftIcon } from './icons/PlatformIcons'
 import ConfirmDialog from './ConfirmDialog'
 
 export type LibraryFilter =
@@ -12,6 +12,7 @@ export type LibraryFilter =
   | 'steam'
   | 'epic'
   | 'gog'
+  | 'ubisoft'
   | `category:${string}`
 
 export interface PlaytimeEntry {
@@ -29,6 +30,7 @@ interface Props {
   steamCount: number
   epicCount: number
   gogCount: number
+  ubisoftCount: number
   categories: Category[]
   categoryCounts: Record<string, number>
   totalPlaytimeSeconds: number
@@ -46,7 +48,8 @@ const ITEMS: { key: LibraryFilter; label: string; icon: JSX.Element | string }[]
   { key: 'no-cover', label: 'Missing Cover', icon: '🖼' },
   { key: 'steam', label: 'Steam', icon: <SteamIcon /> },
   { key: 'epic', label: 'Epic', icon: <EpicIcon /> },
-  { key: 'gog', label: 'GOG', icon: <GogIcon /> }
+  { key: 'gog', label: 'GOG', icon: <GogIcon /> },
+  { key: 'ubisoft', label: 'Ubisoft', icon: <UbisoftIcon /> }
 ]
 
 export default function Sidebar({
@@ -58,6 +61,7 @@ export default function Sidebar({
   steamCount,
   epicCount,
   gogCount,
+  ubisoftCount,
   categories,
   categoryCounts,
   totalPlaytimeSeconds,
@@ -81,6 +85,7 @@ export default function Sidebar({
     if (key === 'steam') return steamCount
     if (key === 'epic') return epicCount
     if (key === 'gog') return gogCount
+    if (key === 'ubisoft') return ubisoftCount
     return ''
   }
 

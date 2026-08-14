@@ -35,7 +35,7 @@ import { mixHex, hexToRgbString } from './lib/color'
 import { CHANGELOG, getChangesSince, type ChangelogEntry } from './lib/changelog'
 
 const LAST_SEEN_VERSION_KEY = 'gb_lastSeenVersion'
-const PLATFORM_SOURCES = new Set<Game['source']>(['steam', 'epic', 'gog'])
+const PLATFORM_SOURCES = new Set<Game['source']>(['steam', 'epic', 'gog', 'ubisoft'])
 
 export default function App(): JSX.Element {
   const [games, setGames] = useState<Game[]>([])
@@ -235,6 +235,7 @@ export default function App(): JSX.Element {
     if (filter === 'steam') list = list.filter((g) => g.source === 'steam')
     if (filter === 'epic') list = list.filter((g) => g.source === 'epic')
     if (filter === 'gog') list = list.filter((g) => g.source === 'gog')
+    if (filter === 'ubisoft') list = list.filter((g) => g.source === 'ubisoft')
     if (filter.startsWith('category:')) {
       const categoryId = filter.slice('category:'.length)
       list = list.filter((g) => g.categoryIds.includes(categoryId))
@@ -396,6 +397,23 @@ export default function App(): JSX.Element {
           : result.imported === 0
             ? 'No new GOG games found — everything already installed is already in your library.'
             : `Imported ${result.imported} game(s) from GOG.`
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleImportUbisoft(): Promise<void> {
+    setBusy(true)
+    try {
+      const result = await window.api.importUbisoftLibrary()
+      setInfoMessage({
+        title: 'Import Ubisoft',
+        message: result.error
+          ? `Couldn't import from Ubisoft Connect: ${result.error}`
+          : result.imported === 0
+            ? 'No new Ubisoft games found — everything already installed is already in your library.'
+            : `Imported ${result.imported} game(s) from Ubisoft Connect.`
       })
     } finally {
       setBusy(false)
@@ -768,6 +786,7 @@ export default function App(): JSX.Element {
         onImportSteam={handleImportSteam}
         onImportEpic={handleImportEpic}
         onImportGog={handleImportGog}
+        onImportUbisoft={handleImportUbisoft}
         onFetchCovers={handleFetchCovers}
         onCleanNames={handleCleanNames}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -793,6 +812,7 @@ export default function App(): JSX.Element {
           steamCount={games.filter((g) => g.source === 'steam').length}
           epicCount={games.filter((g) => g.source === 'epic').length}
           gogCount={games.filter((g) => g.source === 'gog').length}
+          ubisoftCount={games.filter((g) => g.source === 'ubisoft').length}
           categories={categories}
           categoryCounts={Object.fromEntries(
             categories.map((c) => [c.id, games.filter((g) => g.categoryIds.includes(c.id)).length])

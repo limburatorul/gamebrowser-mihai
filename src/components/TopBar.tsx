@@ -12,6 +12,7 @@ interface Props {
   onImportSteam: () => void
   onImportEpic: () => void
   onImportGog: () => void
+  onImportUbisoft: () => void
   onFetchCovers: () => void
   onCleanNames: () => void
   onOpenSettings: () => void
@@ -40,6 +41,7 @@ export default function TopBar({
   onImportSteam,
   onImportEpic,
   onImportGog,
+  onImportUbisoft,
   onFetchCovers,
   onCleanNames,
   onOpenSettings,
@@ -87,6 +89,14 @@ export default function TopBar({
           title="Detect and import games already installed through GOG Galaxy"
         >
           Import GOG
+        </button>
+        <button
+          className="btn"
+          onClick={onImportUbisoft}
+          disabled={busy}
+          title="Detect and import games already installed through Ubisoft Connect"
+        >
+          Import Ubisoft
         </button>
         <button
           className="btn"

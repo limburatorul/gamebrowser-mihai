@@ -9,7 +9,7 @@ export interface Game {
   dateAdded: string
   lastPlayed: string | null
   playtimeSeconds: number
-  source: 'manual' | 'folder-scan' | 'steam' | 'epic' | 'gog'
+  source: 'manual' | 'folder-scan' | 'steam' | 'epic' | 'gog' | 'ubisoft'
   genres: string[]
   tags: string[]
   rating: number | null
@@ -17,6 +17,7 @@ export interface Game {
   steamAppId: number | null
   epicAppName: string | null
   gogProductId: string | null
+  ubisoftId: string | null
 }
 
 export interface Category {
@@ -102,7 +103,7 @@ export interface SteamGameDetails {
 }
 
 export interface LibrarySyncEvent {
-  source: 'Steam' | 'Epic' | 'GOG'
+  source: 'Steam' | 'Epic' | 'GOG' | 'Ubisoft'
   added: number
   removed: number
 }
@@ -162,6 +163,7 @@ export interface GameApi {
   importSteamLibrary(): Promise<ImportResult>
   importEpicLibrary(): Promise<ImportResult>
   importGogLibrary(): Promise<ImportResult>
+  importUbisoftLibrary(): Promise<ImportResult>
   checkForUpdate(): Promise<UpdateCheckResult>
   downloadUpdateAndRestart(assetUrl: string, assetSize: number, version: string): Promise<UpdateApplyResult>
   getSteamDetails(id: string): Promise<SteamGameDetails | null>

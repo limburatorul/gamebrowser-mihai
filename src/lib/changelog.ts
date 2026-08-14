@@ -6,6 +6,14 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.14.0',
+    changes: [
+      'New: Ubisoft Connect import — detects installed titles, with a dedicated "Ubisoft" sidebar filter, sync, and uninstall support, just like Steam/Epic/GOG.',
+      'New: screenshots for your Steam-tagged games are now fetched and cached gradually in the background (on startup and after importing), so the Game Details panel loads instantly once it catches up instead of fetching on first open.',
+      'Fix: the selection border on grid tiles now fits the bigger title/playtime text from the last update — before, the next row could overlap it.'
+    ]
+  },
+  {
     version: '1.13.0',
     changes: [
       'New: left/right buttons (and arrow keys) to step through screenshots in the enlarged view.',

@@ -91,7 +91,8 @@ async function loadLibrary(): Promise<void> {
       categoryIds: g.categoryIds ?? [],
       steamAppId: g.steamAppId ?? null,
       epicAppName: g.epicAppName ?? null,
-      gogProductId: g.gogProductId ?? null
+      gogProductId: g.gogProductId ?? null,
+      ubisoftId: g.ubisoftId ?? null
     }))
   } catch {
     games = []
@@ -437,6 +438,37 @@ async function localizeSteamImages(appid: number, details: SteamGameDetails): Pr
   return { ...details, headerImage, screenshots }
 }
 
+async function hasLocalScreenshot(appid: number): Promise<boolean> {
+  try {
+    await fs.access(join(screenshotsDir, `${appid}-0.jpg`))
+    return true
+  } catch {
+    return false
+  }
+}
+
+// Gradually fills in the screenshots/banner cache for every Steam-tagged
+// game that doesn't have one yet, so opening the Game Details panel later is
+// instant instead of hitting Steam's API for the first time. Scoped to games
+// with a known steamAppId only - matching non-Steam games by name for an
+// opportunistic background sweep would mean a lot of speculative searches
+// for titles that may not even have a Steam page; those still get fetched
+// on demand (and cached) when the details panel is opened. A 1.5s gap
+// between requests keeps this polite to Steam's API; safe to call again
+// while a previous sweep is still running since each game is skipped once
+// its files exist on disk, so overlapping sweeps just do redundant cache
+// checks rather than duplicate downloads.
+async function sweepMissingScreenshots(): Promise<void> {
+  const targets = games.filter((g) => g.steamAppId !== null)
+  for (const g of targets) {
+    const appid = g.steamAppId
+    if (appid === null || (await hasLocalScreenshot(appid))) continue
+    const details = await fetchSteamAppDetails(appid)
+    if (details) await localizeSteamImages(appid, details)
+    await new Promise((r) => setTimeout(r, 1500))
+  }
+}
+
 async function fetchSteamMetadataForGame(game: Game, needsCover: boolean): Promise<boolean> {
   const match = await searchSteamMatch(game.name)
   if (!match) return false
@@ -770,7 +802,8 @@ async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]
       categoryIds: [],
       steamAppId: g.appId,
       epicAppName: null,
-      gogProductId: null
+      gogProductId: null,
+      ubisoftId: null
     }
     games.push(game)
     added.push(game)
@@ -820,7 +853,8 @@ async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
       categoryIds: [],
       steamAppId: null,
       epicAppName: m.appName,
-      gogProductId: null
+      gogProductId: null,
+      ubisoftId: null
     }
     games.push(game)
     added.push(game)
@@ -856,13 +890,102 @@ async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
       categoryIds: [],
       steamAppId: null,
       epicAppName: null,
-      gogProductId: g.productId
+      gogProductId: g.productId,
+      ubisoftId: null
     }
     games.push(game)
     added.push(game)
     existingProductIds.add(g.productId)
   }
   return added
+}
+
+interface InstalledUbisoftGame {
+  id: string
+  name: string
+  installDir: string
+}
+
+// Ubisoft Connect (formerly Uplay) writes one registry subkey per installed
+// game under Installs, each with just an InstallDir value - no friendly
+// name anywhere in the registry, so the install folder's own name is the
+// best available title (same fallback GOG uses when its title lookup
+// misses). null distinguishes "Ubisoft Connect never installed" (key
+// doesn't exist, reg query fails) from "installed, nothing there".
+async function findInstalledUbisoftGames(): Promise<InstalledUbisoftGame[] | null> {
+  try {
+    const { stdout } = await execFileAsync('reg', [
+      'query',
+      'HKLM\\SOFTWARE\\WOW6432Node\\Ubisoft\\Launcher\\Installs',
+      '/s'
+    ])
+    const results: InstalledUbisoftGame[] = []
+    let currentId: string | null = null
+    for (const line of stdout.split(/\r?\n/)) {
+      const keyMatch = line.match(/\\Installs\\([^\\]+)\s*$/)
+      if (keyMatch) {
+        currentId = keyMatch[1]
+        continue
+      }
+      const valueMatch = line.match(/^\s*InstallDir\s+REG_SZ\s+(.+)$/i)
+      if (valueMatch && currentId) {
+        const installDir = valueMatch[1].trim()
+        results.push({ id: currentId, name: cleanGameName(basename(installDir)), installDir })
+        currentId = null
+      }
+    }
+    return results
+  } catch {
+    return null
+  }
+}
+
+async function addNewUbisoftGames(installed: InstalledUbisoftGame[]): Promise<Game[]> {
+  const existingIds = new Set(games.map((g) => g.ubisoftId).filter((id): id is string => id !== null))
+  const added: Game[] = []
+  for (const g of installed) {
+    if (existingIds.has(g.id)) continue
+    const exe = await findBestExe(g.installDir)
+    if (!exe) continue
+    const id = randomUUID()
+    const iconPath = await extractIcon(exe, id)
+    const game: Game = {
+      id,
+      name: g.name,
+      exePath: exe,
+      installDir: g.installDir,
+      coverPath: null,
+      iconPath,
+      favorite: false,
+      dateAdded: new Date().toISOString(),
+      lastPlayed: null,
+      playtimeSeconds: 0,
+      source: 'ubisoft',
+      genres: [],
+      tags: [],
+      rating: null,
+      categoryIds: [],
+      steamAppId: null,
+      epicAppName: null,
+      gogProductId: null,
+      ubisoftId: g.id
+    }
+    games.push(game)
+    added.push(game)
+    existingIds.add(g.id)
+  }
+  return added
+}
+
+async function syncUbisoftLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
+  const installed = await findInstalledUbisoftGames()
+  if (installed === null) return { added: [], removed: [] }
+  const installedIds = new Set(installed.map((g) => g.id))
+  const removed = games.filter(
+    (g) => g.source === 'ubisoft' && g.ubisoftId !== null && !installedIds.has(g.ubisoftId)
+  )
+  const added = await addNewUbisoftGames(installed)
+  return { added, removed }
 }
 
 async function syncSteamLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
@@ -907,13 +1030,14 @@ async function syncGogLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
 // as repairIgnoredExePaths, not a popup/toast.
 async function syncPlatformLibraries(): Promise<void> {
   if (!settings.librarySyncEnabled) return
-  const [steam, epic, gog] = await Promise.all([
+  const [steam, epic, gog, ubisoft] = await Promise.all([
     syncSteamLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] })),
     syncEpicLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] })),
-    syncGogLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] }))
+    syncGogLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] })),
+    syncUbisoftLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] }))
   ])
-  const removed = [...steam.removed, ...epic.removed, ...gog.removed]
-  const added = [...steam.added, ...epic.added, ...gog.added]
+  const removed = [...steam.removed, ...epic.removed, ...gog.removed, ...ubisoft.removed]
+  const added = [...steam.added, ...epic.added, ...gog.added, ...ubisoft.added]
   if (removed.length > 0) {
     const removedIds = new Set(removed.map((g) => g.id))
     games = games.filter((g) => !removedIds.has(g.id))
@@ -926,7 +1050,8 @@ async function syncPlatformLibraries(): Promise<void> {
   for (const [source, result] of [
     ['Steam', steam],
     ['Epic', epic],
-    ['GOG', gog]
+    ['GOG', gog],
+    ['Ubisoft', ubisoft]
   ] as const) {
     if (result.added.length > 0 || result.removed.length > 0) {
       events.push({ source, added: result.added.length, removed: result.removed.length })
@@ -1150,7 +1275,8 @@ function registerIpcHandlers(): void {
       categoryIds: [],
       steamAppId: null,
       epicAppName: null,
-      gogProductId: null
+      gogProductId: null,
+      ubisoftId: null
     }
     games.push(game)
     await saveLibrary()
@@ -1214,7 +1340,8 @@ function registerIpcHandlers(): void {
         categoryIds: [],
         steamAppId: null,
         epicAppName: null,
-        gogProductId: null
+        gogProductId: null,
+        ubisoftId: null
       }
       games.push(game)
       created.push(game)
@@ -1233,6 +1360,7 @@ function registerIpcHandlers(): void {
       await saveLibrary()
       broadcastLibrary()
       for (const game of created) enqueueAutoCoverFetch(game)
+      void sweepMissingScreenshots()
     }
     return { imported: created.length }
   })
@@ -1258,6 +1386,18 @@ function registerIpcHandlers(): void {
     }
     if (gogGames.length === 0) return { imported: 0, error: 'GOG Galaxy not found, or no games installed.' }
     const created = await addNewGogGames(gogGames)
+    if (created.length > 0) {
+      await saveLibrary()
+      broadcastLibrary()
+      for (const game of created) enqueueAutoCoverFetch(game)
+    }
+    return { imported: created.length }
+  })
+
+  ipcMain.handle('ubisoft:import', async (): Promise<ImportResult> => {
+    const installed = await findInstalledUbisoftGames()
+    if (installed === null) return { imported: 0, error: 'Ubisoft Connect installation not found.' }
+    const created = await addNewUbisoftGames(installed)
     if (created.length > 0) {
       await saveLibrary()
       broadcastLibrary()
@@ -1398,7 +1538,15 @@ function registerIpcHandlers(): void {
         spawn(join(game.installDir, uninstaller.name), [], { detached: true, stdio: 'ignore' }).unref()
         return { ok: true }
       }
-      return { ok: false, error: 'Uninstall is only available for Steam, Epic, and GOG games.' }
+      if (game.source === 'ubisoft' && game.ubisoftId !== null) {
+        // No direct uninstall URI is documented for Ubisoft Connect - this
+        // opens the client to the game's own page, where Uninstall is one
+        // click away, same end result as the other platforms just with one
+        // extra click.
+        await shell.openExternal(`uplay://open/game/${game.ubisoftId}`)
+        return { ok: true }
+      }
+      return { ok: false, error: 'Uninstall is only available for Steam, Epic, GOG, and Ubisoft games.' }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
@@ -1629,7 +1777,11 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1920,
     height: 1080,
-    minWidth: 1850,
+    // Bumped for the new "Import Ubisoft" button - estimated, not measured
+    // live via CDP like the previous bumps (no way to do that in this
+    // session). Re-measure with getBoundingClientRect if the toolbar still
+    // looks cut off at this width.
+    minWidth: 2000,
     minHeight: 640,
     show: false,
     autoHideMenuBar: true,
@@ -1681,7 +1833,7 @@ if (gotSingleInstanceLock) {
     registerIpcHandlers()
     createWindow()
     void repairIgnoredExePaths()
-    void syncPlatformLibraries()
+    void syncPlatformLibraries().then(() => sweepMissingScreenshots())
     void maybeRunScheduledBackup()
     void cleanupOldPortableExes()
     // Cheap periodic re-check rather than scheduling exactly at the interval

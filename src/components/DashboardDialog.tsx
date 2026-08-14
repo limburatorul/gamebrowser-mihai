@@ -40,7 +40,8 @@ const SOURCE_LABELS: Record<Game['source'], string> = {
   'folder-scan': 'Folder scan',
   steam: 'Steam import',
   epic: 'Epic import',
-  gog: 'GOG import'
+  gog: 'GOG import',
+  ubisoft: 'Ubisoft import'
 }
 
 export default function DashboardDialog({ games, onClose }: Props): JSX.Element {

@@ -17,7 +17,7 @@ interface Props {
   onDeleteFromDisk: (id: string) => void
 }
 
-const PLATFORM_SOURCES = new Set(['steam', 'epic', 'gog'])
+const PLATFORM_SOURCES = new Set(['steam', 'epic', 'gog', 'ubisoft'])
 
 export default function GameDetails({
   game,

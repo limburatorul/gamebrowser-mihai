@@ -17,7 +17,10 @@ interface Props {
 }
 
 const GRID_GAP = 16
-const TILE_TITLE_AREA = 34
+// Reserved height below the cover for title + playtime text, plus the
+// tile's own padding/border - must track index.css's .game-tile-title /
+// .game-tile-playtime font sizes, or rows start overlapping each other.
+const TILE_TITLE_AREA = 56
 const LIST_ROW_HEIGHT = 64
 
 export default function GameGrid({
