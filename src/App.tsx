@@ -424,9 +424,9 @@ export default function App(): JSX.Element {
     setCheckingForUpdate(true)
     try {
       const result = await window.api.checkForUpdate()
+      setAboutOpen(false)
       if (result.available) {
         setUpdateCheck(result)
-        setAboutOpen(false)
       } else {
         setInfoMessage({
           title: 'Check for Updates',
@@ -628,6 +628,7 @@ export default function App(): JSX.Element {
     tags: string[]
     rating: number | null
     categoryIds: string[]
+    steamAppId: number | null
   }): Promise<void> {
     if (!editingId) return
     setSavingEdit(true)

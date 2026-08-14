@@ -197,24 +197,32 @@ select {
 }
 
 .details-panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 3;
   width: 400px;
+  flex-shrink: 0;
   background: var(--bg-1);
   border-left: 1px solid var(--border);
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
   overflow-y: auto;
-  padding: 16px;
-  transform: translateX(0);
-  transition: transform 220ms ease;
+  overflow-x: hidden;
+  /* Top padding matches .sidebar/.game-scroll: the topbar is
+     position:absolute (removed from .app's flex flow), so every sibling
+     of .body needs its own clearance or its content starts underneath it. */
+  padding: 68px 16px 16px;
+  transition: width 220ms ease, padding 220ms ease;
 }
 
+/* Animating width (not transform) so the game grid actually reflows/shrinks
+   alongside it via flexbox, instead of the panel overlaying and hiding
+   games behind it. This also keeps the panel free of an active `transform`,
+   which matters because a transformed ancestor becomes the containing block
+   for `position: fixed` descendants - the screenshot lightbox rendered
+   inside this panel would otherwise be trapped to the panel's box instead
+   of centering over the whole window. */
 .details-panel-hidden {
-  transform: translateX(100%);
-  pointer-events: none;
+  width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-left-width: 0;
+  overflow-y: hidden;
 }
 
 .details-panel-header {
@@ -922,6 +930,15 @@ select {
   overflow-y: auto;
 }
 
+.settings-modal {
+  /* Fixed instead of max-height: with tabs, each one has a different amount
+     of content - max-height let the whole modal grow/shrink to fit whatever
+     tab was active, visibly resizing the window on every tab switch. A
+     fixed height plus the existing overflow-y:auto keeps it constant and
+     just scrolls internally for the taller tabs. */
+  height: 80vh;
+}
+
 .modal-small {
   width: 340px;
 }
@@ -1001,6 +1018,8 @@ select {
   justify-content: flex-end;
   gap: 8px;
   margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
 
 .whats-new-modal {
@@ -1169,6 +1188,33 @@ select {
   background: var(--accent-dim);
   border-color: var(--accent);
   color: var(--text-0);
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.settings-tabs button {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-2);
+  padding: 8px 4px 10px;
+  margin-right: 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-tabs button:hover {
+  color: var(--text-0);
+}
+
+.settings-tabs button.active {
+  color: var(--text-0);
+  border-bottom-color: var(--accent);
 }
 
 .settings-section {
@@ -1501,6 +1547,50 @@ select {
 }
 
 /* Context menu */
+.import-menu-wrapper {
+  position: relative;
+}
+
+.import-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.import-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 21;
+  min-width: 180px;
+  background: rgba(23, 24, 27, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+}
+
+.import-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  padding: 7px 10px;
+  color: var(--text-0);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.import-menu-item:hover {
+  background: var(--accent-dim);
+}
+
 .context-menu-overlay {
   position: fixed;
   inset: 0;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { Game, SteamGameDetails } from '@shared/types'
 import { toLocalFileUrl } from '../lib/localFile'
 
@@ -150,50 +151,58 @@ export default function DetailsPanel({ game, open, onClose, onLightboxOpenChange
         </div>
       )}
 
-      {lightboxPath && (
-        <div className="screenshot-lightbox-overlay" onClick={() => setLightboxPath(null)}>
-          <button
-            className="screenshot-lightbox-close"
-            title="Close"
-            onClick={(e) => {
-              e.stopPropagation()
-              setLightboxPath(null)
-            }}
-          >
-            ✕
-          </button>
-          {screenshots.length > 1 && (
+      {/* Portaled straight to document.body: rendering this fixed-position
+          overlay as a normal child of .details-panel kept it visually
+          confined to the panel's box in testing even without any transform
+          on the panel (sidebar/topbar/panel content still showed through
+          around it) - a portal sidesteps whatever ancestor containment was
+          causing that instead of chasing the exact CSS cause further. */}
+      {lightboxPath &&
+        createPortal(
+          <div className="screenshot-lightbox-overlay" onClick={() => setLightboxPath(null)}>
             <button
-              className="screenshot-lightbox-nav screenshot-lightbox-prev"
-              title="Previous"
+              className="screenshot-lightbox-close"
+              title="Close"
               onClick={(e) => {
                 e.stopPropagation()
-                showPrev()
+                setLightboxPath(null)
               }}
             >
-              ‹
+              ✕
             </button>
-          )}
-          <img
-            src={toLocalFileUrl(lightboxPath) ?? undefined}
-            alt="Screenshot"
-            className="screenshot-lightbox-img"
-            onClick={(e) => e.stopPropagation()}
-          />
-          {screenshots.length > 1 && (
-            <button
-              className="screenshot-lightbox-nav screenshot-lightbox-next"
-              title="Next"
-              onClick={(e) => {
-                e.stopPropagation()
-                showNext()
-              }}
-            >
-              ›
-            </button>
-          )}
-        </div>
-      )}
+            {screenshots.length > 1 && (
+              <button
+                className="screenshot-lightbox-nav screenshot-lightbox-prev"
+                title="Previous"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  showPrev()
+                }}
+              >
+                ‹
+              </button>
+            )}
+            <img
+              src={toLocalFileUrl(lightboxPath) ?? undefined}
+              alt="Screenshot"
+              className="screenshot-lightbox-img"
+              onClick={(e) => e.stopPropagation()}
+            />
+            {screenshots.length > 1 && (
+              <button
+                className="screenshot-lightbox-nav screenshot-lightbox-next"
+                title="Next"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  showNext()
+                }}
+              >
+                ›
+              </button>
+            )}
+          </div>,
+          document.body
+        )}
     </aside>
   )
 }

@@ -222,6 +222,27 @@ interface IgdbToken {
   expiresAt: number
 }
 
+// net.fetch has no default timeout, and merely aborting the initial request
+// isn't enough - a stall can just as easily happen mid-body (e.g. a large
+// image/exe download whose connection stops making progress after headers
+// already arrived). A single stuck request like that hangs forever, which
+// is fatal for anything that calls it in a sequential loop: sweepMissingScreenshots
+// processes hundreds of games one at a time with no per-request cutoff, so
+// one bad connection permanently stops it partway through with nothing to
+// show for it - exactly what silently happened before this existed. `fn`
+// gets the abort signal to pass into net.fetch AND should do any body
+// consumption (`.json()`/`.arrayBuffer()`) inside itself, so the whole
+// operation - not just getting a response header - is bounded by timeoutMs.
+async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs = 15000): Promise<T> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fn(controller.signal)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 let igdbToken: IgdbToken | null = null
 
 async function getIgdbToken(): Promise<string | null> {
@@ -229,11 +250,13 @@ async function getIgdbToken(): Promise<string | null> {
   if (igdbToken && igdbToken.expiresAt > Date.now() + 60_000) return igdbToken.accessToken
   const url = `https://id.twitch.tv/oauth2/token?client_id=${encodeURIComponent(settings.igdbClientId)}&client_secret=${encodeURIComponent(settings.igdbClientSecret)}&grant_type=client_credentials`
   try {
-    const res = await net.fetch(url, { method: 'POST' })
-    if (!res.ok) return null
-    const data = (await res.json()) as { access_token: string; expires_in: number }
-    igdbToken = { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 }
-    return igdbToken.accessToken
+    return await withTimeout(async (signal) => {
+      const res = await net.fetch(url, { method: 'POST', signal })
+      if (!res.ok) return null
+      const data = (await res.json()) as { access_token: string; expires_in: number }
+      igdbToken = { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 }
+      return igdbToken.accessToken
+    })
   } catch {
     return null
   }
@@ -257,27 +280,32 @@ async function searchIgdbCover(name: string): Promise<IgdbCoverMatch | null> {
   const escaped = name.replace(/"/g, '\\"')
   const body = `search "${escaped}"; fields name,cover.image_id,genres.name; limit 5;`
   try {
-    const res = await net.fetch('https://api.igdb.com/v4/games', {
-      method: 'POST',
-      headers: {
-        'Client-ID': settings.igdbClientId,
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'text/plain'
-      },
-      body
+    return await withTimeout(async (signal) => {
+      const res = await net.fetch('https://api.igdb.com/v4/games', {
+        method: 'POST',
+        headers: {
+          'Client-ID': settings.igdbClientId,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'text/plain'
+        },
+        body,
+        signal
+      })
+      if (!res.ok) return null
+      const results = (await res.json()) as IgdbGameResult[]
+      const withCover = results.filter(
+        (r): r is IgdbGameResult & { cover: { image_id: string } } => !!r.cover?.image_id
+      )
+      if (withCover.length === 0) return null
+      const norm = normalizeGameName(name)
+      const exact = withCover.find((r) => normalizeGameName(r.name) === norm)
+      const chosen = exact ?? withCover[0]
+      return {
+        name: chosen.name,
+        imageId: chosen.cover.image_id,
+        genres: chosen.genres?.map((g) => g.name) ?? []
+      }
     })
-    if (!res.ok) return null
-    const results = (await res.json()) as IgdbGameResult[]
-    const withCover = results.filter((r): r is IgdbGameResult & { cover: { image_id: string } } => !!r.cover?.image_id)
-    if (withCover.length === 0) return null
-    const norm = normalizeGameName(name)
-    const exact = withCover.find((r) => normalizeGameName(r.name) === norm)
-    const chosen = exact ?? withCover[0]
-    return {
-      name: chosen.name,
-      imageId: chosen.cover.image_id,
-      genres: chosen.genres?.map((g) => g.name) ?? []
-    }
   } catch {
     return null
   }
@@ -285,11 +313,13 @@ async function searchIgdbCover(name: string): Promise<IgdbCoverMatch | null> {
 
 async function downloadImage(url: string, destPath: string): Promise<boolean> {
   try {
-    const res = await net.fetch(url)
-    if (!res.ok) return false
-    const buf = Buffer.from(await res.arrayBuffer())
-    await writeFileAtomic(destPath, buf)
-    return true
+    return await withTimeout(async (signal) => {
+      const res = await net.fetch(url, { signal })
+      if (!res.ok) return false
+      const buf = Buffer.from(await res.arrayBuffer())
+      await writeFileAtomic(destPath, buf)
+      return true
+    }, 20000)
   } catch {
     return false
   }
@@ -334,25 +364,36 @@ interface SteamMatch {
   coverUrl: string
 }
 
+// Steam's CDN doesn't have a single guaranteed image per app - some only
+// have header.jpg, not the taller library art. Tries the best option first.
+async function findSteamCoverUrl(appid: number, signal: AbortSignal): Promise<string | null> {
+  for (const variant of ['library_600x900_2x.jpg', 'library_600x900.jpg', 'header.jpg']) {
+    const url = `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/${variant}`
+    try {
+      const check = await net.fetch(url, { method: 'HEAD', signal })
+      if (check.ok) return url
+    } catch {
+      // try next variant
+    }
+  }
+  return null
+}
+
 async function searchSteamMatch(name: string): Promise<SteamMatch | null> {
   try {
-    const res = await net.fetch(
-      `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(name)}&l=english&cc=us`
-    )
-    if (!res.ok) return null
-    const data = (await res.json()) as { items?: SteamSearchItem[] }
-    const item = data.items?.[0]
-    if (!item) return null
-    for (const variant of ['library_600x900_2x.jpg', 'library_600x900.jpg', 'header.jpg']) {
-      const url = `https://cdn.akamai.steamstatic.com/steam/apps/${item.id}/${variant}`
-      try {
-        const check = await net.fetch(url, { method: 'HEAD' })
-        if (check.ok) return { appid: item.id, coverUrl: url }
-      } catch {
-        // try next variant
-      }
-    }
-    return null
+    return await withTimeout(async (signal) => {
+      const res = await net.fetch(
+        `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(name)}&l=english&cc=us`,
+        { signal }
+      )
+      if (!res.ok) return null
+      const data = (await res.json()) as { items?: SteamSearchItem[] }
+      const item = data.items?.[0]
+      if (!item) return null
+      const coverUrl = await findSteamCoverUrl(item.id, signal)
+      if (!coverUrl) return null
+      return { appid: item.id, coverUrl }
+    })
   } catch {
     return null
   }
@@ -360,17 +401,20 @@ async function searchSteamMatch(name: string): Promise<SteamMatch | null> {
 
 async function fetchSteamGenres(appid: number): Promise<string[]> {
   try {
-    const res = await net.fetch(
-      `https://store.steampowered.com/api/appdetails?appids=${appid}&l=english&filters=genres`
-    )
-    if (!res.ok) return []
-    const data = (await res.json()) as Record<
-      string,
-      { success: boolean; data?: { genres?: { description: string }[] } }
-    >
-    const entry = data[String(appid)]
-    if (!entry?.success) return []
-    return entry.data?.genres?.map((g) => g.description) ?? []
+    return await withTimeout(async (signal) => {
+      const res = await net.fetch(
+        `https://store.steampowered.com/api/appdetails?appids=${appid}&l=english&filters=genres`,
+        { signal }
+      )
+      if (!res.ok) return []
+      const data = (await res.json()) as Record<
+        string,
+        { success: boolean; data?: { genres?: { description: string }[] } }
+      >
+      const entry = data[String(appid)]
+      if (!entry?.success) return []
+      return entry.data?.genres?.map((g) => g.description) ?? []
+    })
   } catch {
     return []
   }
@@ -387,27 +431,40 @@ interface SteamAppDetailsResponse {
   metacritic?: { score: number }
 }
 
-async function fetchSteamAppDetails(appid: number): Promise<SteamGameDetails | null> {
+interface SteamAppDetailsFetch {
+  details: SteamGameDetails | null
+  rateLimited: boolean
+}
+
+async function fetchSteamAppDetails(appid: number): Promise<SteamAppDetailsFetch> {
   try {
-    const res = await net.fetch(`https://store.steampowered.com/api/appdetails?appids=${appid}&l=english`)
-    if (!res.ok) return null
-    const data = (await res.json()) as Record<string, { success: boolean; data?: SteamAppDetailsResponse }>
-    const entry = data[String(appid)]
-    if (!entry?.success || !entry.data) return null
-    const d = entry.data
-    return {
-      appid,
-      description: d.short_description ?? '',
-      headerImage: d.header_image ?? null,
-      screenshots: d.screenshots?.map((s) => s.path_full) ?? [],
-      releaseDate: d.release_date?.date ?? null,
-      developers: d.developers ?? [],
-      publishers: d.publishers ?? [],
-      genres: d.genres?.map((g) => g.description) ?? [],
-      metacriticScore: d.metacritic?.score ?? null
-    }
+    return await withTimeout(async (signal) => {
+      const res = await net.fetch(`https://store.steampowered.com/api/appdetails?appids=${appid}&l=english`, {
+        signal
+      })
+      if (res.status === 429) return { details: null, rateLimited: true }
+      if (!res.ok) return { details: null, rateLimited: false }
+      const data = (await res.json()) as Record<string, { success: boolean; data?: SteamAppDetailsResponse }>
+      const entry = data[String(appid)]
+      if (!entry?.success || !entry.data) return { details: null, rateLimited: false }
+      const d = entry.data
+      return {
+        details: {
+          appid,
+          description: d.short_description ?? '',
+          headerImage: d.header_image ?? null,
+          screenshots: d.screenshots?.map((s) => s.path_full) ?? [],
+          releaseDate: d.release_date?.date ?? null,
+          developers: d.developers ?? [],
+          publishers: d.publishers ?? [],
+          genres: d.genres?.map((g) => g.description) ?? [],
+          metacriticScore: d.metacritic?.score ?? null
+        },
+        rateLimited: false
+      }
+    })
   } catch {
-    return null
+    return { details: null, rateLimited: false }
   }
 }
 
@@ -458,15 +515,59 @@ async function hasLocalScreenshot(appid: number): Promise<boolean> {
 // while a previous sweep is still running since each game is skipped once
 // its files exist on disk, so overlapping sweeps just do redundant cache
 // checks rather than duplicate downloads.
+const SCREENSHOT_SWEEP_CONCURRENCY = 2
+const SCREENSHOT_SWEEP_DELAY_MS = 1200
+const SCREENSHOT_SWEEP_RATE_LIMIT_BASE_BACKOFF_MS = 60000
+const SCREENSHOT_SWEEP_RATE_LIMIT_MAX_BACKOFF_MS = 15 * 60000
+
+// Shared across sweep calls: once Steam responds 429, every worker (and any
+// later sweep - next startup, next Steam import) waits out this window
+// before trying again. Grows exponentially on repeated 429s instead of
+// retrying the same fixed 60s wait indefinitely against a block that may
+// well last longer than that, and resets back to the base once a request
+// actually succeeds.
+let steamRateLimitedUntil = 0
+let steamRateLimitBackoffMs = SCREENSHOT_SWEEP_RATE_LIMIT_BASE_BACKOFF_MS
+
 async function sweepMissingScreenshots(): Promise<void> {
+  if (Date.now() < steamRateLimitedUntil) return
   const targets = games.filter((g) => g.steamAppId !== null)
-  for (const g of targets) {
-    const appid = g.steamAppId
-    if (appid === null || (await hasLocalScreenshot(appid))) continue
-    const details = await fetchSteamAppDetails(appid)
-    if (details) await localizeSteamImages(appid, details)
-    await new Promise((r) => setTimeout(r, 1500))
+  let nextIndex = 0
+  let rateLimitHit = false
+
+  // A fixed pool of workers pulling from a shared cursor, rather than one
+  // Promise.all over the whole list, so only SCREENSHOT_SWEEP_CONCURRENCY
+  // requests are ever in flight at once regardless of library size - each
+  // worker still paces its own requests SCREENSHOT_SWEEP_DELAY_MS apart to
+  // stay reasonably polite to Steam's API while running faster than the old
+  // single-file-at-a-time version. The *first* 429 stops this run entirely
+  // (see rateLimitHit) rather than working through the rest of the list -
+  // if Steam is blocking, every other request in this run would fail too,
+  // so there's no point burning through them one by one; the next sweep
+  // trigger picks up where this left off once the backoff window passes.
+  async function worker(): Promise<void> {
+    for (;;) {
+      if (rateLimitHit) return
+      const i = nextIndex++
+      if (i >= targets.length) return
+      const appid = targets[i].steamAppId
+      if (appid === null) continue
+      if (await hasLocalScreenshot(appid)) continue
+
+      const result = await fetchSteamAppDetails(appid)
+      if (result.rateLimited) {
+        rateLimitHit = true
+        steamRateLimitBackoffMs = Math.min(steamRateLimitBackoffMs * 2, SCREENSHOT_SWEEP_RATE_LIMIT_MAX_BACKOFF_MS)
+        steamRateLimitedUntil = Date.now() + steamRateLimitBackoffMs
+        return
+      }
+      steamRateLimitBackoffMs = SCREENSHOT_SWEEP_RATE_LIMIT_BASE_BACKOFF_MS
+      if (result.details) await localizeSteamImages(appid, result.details)
+      await new Promise((r) => setTimeout(r, SCREENSHOT_SWEEP_DELAY_MS))
+    }
   }
+
+  await Promise.all(Array.from({ length: SCREENSHOT_SWEEP_CONCURRENCY }, () => worker()))
 }
 
 async function fetchSteamMetadataForGame(game: Game, needsCover: boolean): Promise<boolean> {
@@ -490,6 +591,21 @@ async function fetchSteamMetadataForGame(game: Game, needsCover: boolean): Promi
   return changed
 }
 
+// Used when the user manually sets/changes a game's Steam ID in the Edit
+// dialog - unlike fetchSteamMetadataForGame, this trusts the given appid
+// completely and re-fetches unconditionally (overwriting any existing
+// cover/genres, even ones a name-based match had already filled in), since
+// setting the ID is an explicit correction of whatever was auto-detected.
+async function applySteamAppId(game: Game, appid: number): Promise<void> {
+  const coverUrl = await withTimeout((signal) => findSteamCoverUrl(appid, signal)).catch(() => null)
+  if (coverUrl) {
+    const dest = join(coversDir, `${game.id}.jpg`)
+    if (await downloadImage(coverUrl, dest)) game.coverPath = dest
+  }
+  const genres = await fetchSteamGenres(appid)
+  if (genres.length > 0) game.genres = genres
+}
+
 interface RawgSearchItem {
   name: string
   background_image: string | null
@@ -499,14 +615,17 @@ interface RawgSearchItem {
 async function searchRawgMatch(name: string): Promise<{ imageUrl: string; genres: string[] } | null> {
   if (!settings.rawgApiKey) return null
   try {
-    const res = await net.fetch(
-      `https://api.rawg.io/api/games?key=${encodeURIComponent(settings.rawgApiKey)}&search=${encodeURIComponent(name)}&page_size=1`
-    )
-    if (!res.ok) return null
-    const data = (await res.json()) as { results?: RawgSearchItem[] }
-    const item = data.results?.[0]
-    if (!item?.background_image) return null
-    return { imageUrl: item.background_image, genres: item.genres?.map((g) => g.name) ?? [] }
+    return await withTimeout(async (signal) => {
+      const res = await net.fetch(
+        `https://api.rawg.io/api/games?key=${encodeURIComponent(settings.rawgApiKey)}&search=${encodeURIComponent(name)}&page_size=1`,
+        { signal }
+      )
+      if (!res.ok) return null
+      const data = (await res.json()) as { results?: RawgSearchItem[] }
+      const item = data.results?.[0]
+      if (!item?.background_image) return null
+      return { imageUrl: item.background_image, genres: item.genres?.map((g) => g.name) ?? [] }
+    })
   } catch {
     return null
   }
@@ -1194,24 +1313,27 @@ async function checkForUpdate(): Promise<UpdateCheckResult> {
   const currentVersion = app.getVersion()
   if (!UPDATE_REPO) return { available: false, currentVersion }
   try {
-    const res = await net.fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
-      headers: { 'User-Agent': 'game-browser-update-check', Accept: 'application/vnd.github+json' }
+    return await withTimeout(async (signal) => {
+      const res = await net.fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
+        headers: { 'User-Agent': 'game-browser-update-check', Accept: 'application/vnd.github+json' },
+        signal
+      })
+      if (!res.ok) return { available: false, currentVersion, error: `GitHub API returned ${res.status}` }
+      const release = (await res.json()) as GithubRelease
+      const latestVersion = release.tag_name.replace(/^v/i, '')
+      const asset = release.assets.find((a) => a.name.toLowerCase().endsWith('.exe'))
+      if (compareVersions(latestVersion, currentVersion) <= 0 || !asset) {
+        return { available: false, currentVersion, latestVersion }
+      }
+      return {
+        available: true,
+        currentVersion,
+        latestVersion,
+        notes: release.body ?? undefined,
+        assetUrl: asset.browser_download_url,
+        assetSize: asset.size
+      }
     })
-    if (!res.ok) return { available: false, currentVersion, error: `GitHub API returned ${res.status}` }
-    const release = (await res.json()) as GithubRelease
-    const latestVersion = release.tag_name.replace(/^v/i, '')
-    const asset = release.assets.find((a) => a.name.toLowerCase().endsWith('.exe'))
-    if (compareVersions(latestVersion, currentVersion) <= 0 || !asset) {
-      return { available: false, currentVersion, latestVersion }
-    }
-    return {
-      available: true,
-      currentVersion,
-      latestVersion,
-      notes: release.body ?? undefined,
-      assetUrl: asset.browser_download_url,
-      assetSize: asset.size
-    }
   } catch (e) {
     return { available: false, currentVersion, error: e instanceof Error ? e.message : String(e) }
   }
@@ -1227,18 +1349,26 @@ async function downloadUpdateAndRestart(
     return { ok: false, error: "Self-update only works from the portable .exe, not `npm run dev`." }
   }
   try {
-    const res = await net.fetch(assetUrl)
-    if (!res.ok) return { ok: false, error: `Download failed: HTTP ${res.status}` }
-    const buf = Buffer.from(await res.arrayBuffer())
-    if (assetSize > 0 && buf.length !== assetSize) {
-      return { ok: false, error: 'Downloaded file size does not match the release asset - try again.' }
-    }
-    const destPath = join(dir, `Game Browser ${version}.exe`)
-    await writeFileAtomic(destPath, buf)
-    const child = spawn(destPath, [], { detached: true, stdio: 'ignore' })
-    child.unref()
-    app.quit()
-    return { ok: true }
+    return await withTimeout(
+      async (signal) => {
+        const res = await net.fetch(assetUrl, { signal })
+        if (!res.ok) return { ok: false, error: `Download failed: HTTP ${res.status}` }
+        const buf = Buffer.from(await res.arrayBuffer())
+        if (assetSize > 0 && buf.length !== assetSize) {
+          return { ok: false, error: 'Downloaded file size does not match the release asset - try again.' }
+        }
+        const destPath = join(dir, `Game Browser ${version}.exe`)
+        await writeFileAtomic(destPath, buf)
+        const child = spawn(destPath, [], { detached: true, stdio: 'ignore' })
+        child.unref()
+        app.quit()
+        return { ok: true }
+      },
+      // The exe itself can be tens of MB - a much longer window than the
+      // default so a merely-slow connection doesn't get mistaken for a
+      // stalled one.
+      120000
+    )
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
@@ -1438,10 +1568,16 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'games:update',
-    async (_e, id: string, patch: Partial<Pick<Game, 'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds'>>) => {
+    async (
+      _e,
+      id: string,
+      patch: Partial<Pick<Game, 'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds' | 'steamAppId'>>
+    ) => {
       const game = games.find((g) => g.id === id)
       if (!game) return null
+      const settingNewAppId = typeof patch.steamAppId === 'number' && patch.steamAppId !== game.steamAppId
       Object.assign(game, patch)
+      if (settingNewAppId) await applySteamAppId(game, patch.steamAppId as number)
       await saveLibrary()
       broadcastLibrary()
       return game
@@ -1563,7 +1699,13 @@ function registerIpcHandlers(): void {
       return { ok: false, error: 'Delete from disk is only available for manually added games.' }
     }
     try {
-      await fs.rm(game.installDir, { recursive: true, force: true })
+      // Windows-specific: a recursive rmdir can transiently fail with
+      // ENOTEMPTY/EBUSY if AV or Explorer still has a brief handle open on
+      // something inside the tree (thumbnail cache, a file that was just
+      // running) even though nothing is actually still using it a moment
+      // later - maxRetries/retryDelay makes Node retry the whole operation
+      // instead of failing on the first attempt.
+      await fs.rm(game.installDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
     }
@@ -1668,9 +1810,9 @@ function registerIpcHandlers(): void {
       if (!match) return null
       appid = match.appid
     }
-    const details = await fetchSteamAppDetails(appid)
-    if (!details) return null
-    return localizeSteamImages(appid, details)
+    const result = await fetchSteamAppDetails(appid)
+    if (!result.details) return null
+    return localizeSteamImages(appid, result.details)
   })
 
   ipcMain.handle('categories:getAll', async (): Promise<Category[]> => categories)
@@ -1777,11 +1919,13 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1920,
     height: 1080,
-    // Bumped for the new "Import Ubisoft" button - estimated, not measured
-    // live via CDP like the previous bumps (no way to do that in this
-    // session). Re-measure with getBoundingClientRect if the toolbar still
-    // looks cut off at this width.
-    minWidth: 2000,
+    // Lowered now that the four separate "Import X" buttons collapsed into
+    // one "Import ▾" dropdown, freeing up most of the width the previous
+    // bump accounted for - so the window fits on 1080p monitors again.
+    // Still an estimate, not a live CDP measurement (no way to do that in
+    // this session) - re-measure with getBoundingClientRect if the toolbar
+    // still looks cut off.
+    minWidth: 1500,
     minHeight: 640,
     show: false,
     autoHideMenuBar: true,
@@ -1836,10 +1980,26 @@ if (gotSingleInstanceLock) {
     void syncPlatformLibraries().then(() => sweepMissingScreenshots())
     void maybeRunScheduledBackup()
     void cleanupOldPortableExes()
+    // The just-replaced old instance may still hold its exe file locked for
+    // a moment after spawning the new one and calling app.quit() (which only
+    // *schedules* shutdown) - the immediate sweep above often loses that
+    // race right after an update. A couple of delayed retries catch it
+    // within this same session instead of leaving the old file until the
+    // user happens to relaunch again.
+    setTimeout(() => void cleanupOldPortableExes(), 5000)
+    setTimeout(() => void cleanupOldPortableExes(), 20000)
     // Cheap periodic re-check rather than scheduling exactly at the interval
     // boundary - correctly picks up backupEnabled/backupFolder/interval
     // changes made at runtime without needing to reset a timer.
     setInterval(() => void maybeRunScheduledBackup(), 15 * 60 * 1000)
+    // sweepMissingScreenshots only otherwise runs once at startup (+ once
+    // after a manual Steam import) - if that one attempt aborts early from
+    // hitting Steam's rate limit, nothing else would ever retry it for the
+    // rest of the session even long after the block has actually lifted,
+    // since there's no periodic trigger. This one is cheap to call
+    // repeatedly: it short-circuits instantly both while still inside an
+    // active backoff window and once the whole library is already cached.
+    setInterval(() => void sweepMissingScreenshots(), 15 * 60 * 1000)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

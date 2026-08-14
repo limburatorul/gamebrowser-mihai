@@ -13,6 +13,7 @@ interface Props {
     tags: string[]
     rating: number | null
     categoryIds: string[]
+    steamAppId: number | null
   }) => void
   onChangeExePath: () => void
   onBrowseCover: () => void
@@ -27,6 +28,14 @@ function parseTags(text: string): string[] {
     if (t) seen.add(t)
   }
   return [...seen]
+}
+
+function parseSteamAppId(text: string): number | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  const urlMatch = trimmed.match(/\/app\/(\d+)/)
+  if (urlMatch) return Number(urlMatch[1])
+  return /^\d+$/.test(trimmed) ? Number(trimmed) : null
 }
 
 export default function EditGameDialog({
@@ -44,6 +53,7 @@ export default function EditGameDialog({
   const [tagsText, setTagsText] = useState(game.tags.join(', '))
   const [rating, setRating] = useState(game.rating)
   const [categoryIds, setCategoryIds] = useState<string[]>(game.categoryIds)
+  const [steamAppIdText, setSteamAppIdText] = useState(game.steamAppId !== null ? String(game.steamAppId) : '')
   const [searchingCover, setSearchingCover] = useState(false)
   const [coverSearchMessage, setCoverSearchMessage] = useState<string | null>(null)
 
@@ -53,7 +63,14 @@ export default function EditGameDialog({
 
   function save(): void {
     if (!name.trim()) return
-    onSave({ name: name.trim(), favorite, tags: parseTags(tagsText), rating, categoryIds })
+    onSave({
+      name: name.trim(),
+      favorite,
+      tags: parseTags(tagsText),
+      rating,
+      categoryIds,
+      steamAppId: parseSteamAppId(steamAppIdText)
+    })
   }
 
   async function handleSearchCover(): Promise<void> {
@@ -108,6 +125,22 @@ export default function EditGameDialog({
             Change…
           </button>
         </div>
+
+        <label className="settings-label">Steam ID</label>
+        <input
+          className="search-input"
+          value={steamAppIdText}
+          onChange={(e) => setSteamAppIdText(e.target.value)}
+          placeholder="e.g. 570, or paste the store.steampowered.com/app/570/… URL"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && name.trim()) save()
+            if (e.key === 'Escape') onCancel()
+          }}
+        />
+        <p className="settings-note">
+          Overrides the cover/genres with this exact Steam store page, regardless of the detected name — useful
+          when auto-matching picked the wrong game.
+        </p>
 
         <label className="settings-label">Tags</label>
         <input

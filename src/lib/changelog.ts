@@ -6,6 +6,69 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.16.3',
+    changes: [
+      "Fix: the automatic background screenshot download only ever ran once at startup — if that one attempt hit Steam's rate limit and backed off, nothing brought it back for the rest of the session even long after the block had actually lifted (opening the Game Details panel manually still worked fine in the meantime, which was the tell). It now automatically retries every 15 minutes."
+    ]
+  },
+  {
+    version: '1.16.2',
+    changes: [
+      'Fix: the screenshot download backoff now stops the whole run on the first Steam rate-limit response instead of grinding through the rest of the list with a wait on every single one, and waits longer each time it happens again instead of retrying the same minute-long window against a block that likely lasts longer.',
+      'Fix: the Settings window now has a fixed size instead of resizing itself every time you switch tabs.'
+    ]
+  },
+  {
+    version: '1.16.1',
+    changes: [
+      "Fix: Delete from Disk could fail with \"directory not empty\" on Windows if a file inside was still briefly held open (AV scan, Explorer) — now retries automatically instead of failing on the first attempt.",
+      'Fix: the background screenshot download now detects being rate-limited by Steam and backs off for a minute instead of silently failing game after game — also dialed back concurrency/pacing since running 4 at once likely triggered the rate limit in the first place.',
+      "Fix: the backup list section could show absolutely nothing in some states — now always shows something (a folder prompt, an error, \"no backups yet\", or the list)."
+    ]
+  },
+  {
+    version: '1.16.0',
+    changes: [
+      'The background screenshot download now runs 4 games at a time instead of one at a time, so it catches up several times faster.',
+      "New: Steam ID field in the Edit dialog — set it to pull the cover and genres from that exact Steam store page, overriding whatever the automatic name match picked (also accepts a pasted store.steampowered.com/app/… URL).",
+      'Settings is now split into Appearance, Backup & Restore, and Automation tabs instead of one long scrolling page.',
+      'Backup list in Settings now also refreshes right after you change the backup folder, not just after Backup Now.'
+    ]
+  },
+  {
+    version: '1.15.2',
+    changes: [
+      'Fix: the background screenshot download could get permanently stuck on a single slow/stalled connection and silently stop making progress for the rest of the library — every network request in the app now times out instead of potentially hanging forever.'
+    ]
+  },
+  {
+    version: '1.15.1',
+    changes: [
+      "Fix: checking for updates from About and finding you're already up to date showed that message behind the About window instead of in front of it."
+    ]
+  },
+  {
+    version: '1.15.0',
+    changes: [
+      'The four separate "Import Steam/Epic/GOG/Ubisoft" buttons are now one "Import ▾" dropdown, freeing up a lot of top bar width — the window fits on 1080p monitors again.',
+      "Fix: the game title in the Game Details panel was rendering underneath the top bar."
+    ]
+  },
+  {
+    version: '1.14.2',
+    changes: [
+      "Fix: the enlarged screenshot view was still visually confined to the Game Details panel's area even without a CSS transform trapping it - now portaled directly to the window root, so it and its nav/close buttons always center over the whole app."
+    ]
+  },
+  {
+    version: '1.14.1',
+    changes: [
+      'Fix: the old exe is now retried a couple more times shortly after an update instead of only at the next full restart, for when it was still locked by the just-replaced process.',
+      "Fix: Settings' Save/Cancel buttons no longer sit glued to the field above them.",
+      'Fix: the Game Details panel now shrinks the game grid instead of covering part of it, and the enlarged screenshot view is centered over the whole window again (with working nav buttons) instead of being trapped inside the panel.'
+    ]
+  },
+  {
     version: '1.14.0',
     changes: [
       'New: Ubisoft Connect import — detects installed titles, with a dedicated "Ubisoft" sidebar filter, sync, and uninstall support, just like Steam/Epic/GOG.',

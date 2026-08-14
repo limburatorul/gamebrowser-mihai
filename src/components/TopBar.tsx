@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { SortKey, ViewMode } from '@shared/types'
+import { SteamIcon, EpicIcon, GogIcon, UbisoftIcon } from './icons/PlatformIcons'
 
 interface Props {
   search: string
@@ -57,6 +59,13 @@ export default function TopBar({
   onTagFilterChange,
   busy
 }: Props): JSX.Element {
+  const [importMenuOpen, setImportMenuOpen] = useState(false)
+
+  function runImport(action: () => void): void {
+    action()
+    setImportMenuOpen(false)
+  }
+
   return (
     <header className="topbar">
       <div className="topbar-actions">
@@ -66,38 +75,34 @@ export default function TopBar({
         <button className="btn" onClick={onScanFolder} disabled={busy}>
           Scan Folder
         </button>
-        <button
-          className="btn"
-          onClick={onImportSteam}
-          disabled={busy}
-          title="Detect and import games already installed through Steam"
-        >
-          Import Steam
-        </button>
-        <button
-          className="btn"
-          onClick={onImportEpic}
-          disabled={busy}
-          title="Detect and import games already installed through the Epic Games Launcher"
-        >
-          Import Epic
-        </button>
-        <button
-          className="btn"
-          onClick={onImportGog}
-          disabled={busy}
-          title="Detect and import games already installed through GOG Galaxy"
-        >
-          Import GOG
-        </button>
-        <button
-          className="btn"
-          onClick={onImportUbisoft}
-          disabled={busy}
-          title="Detect and import games already installed through Ubisoft Connect"
-        >
-          Import Ubisoft
-        </button>
+        <div className="import-menu-wrapper">
+          <button className="btn" onClick={() => setImportMenuOpen((v) => !v)} disabled={busy}>
+            Import ▾
+          </button>
+          {importMenuOpen && (
+            <>
+              <div className="import-menu-overlay" onClick={() => setImportMenuOpen(false)} />
+              <div className="import-menu">
+                <button className="import-menu-item" onClick={() => runImport(onImportSteam)}>
+                  <SteamIcon />
+                  <span>Steam</span>
+                </button>
+                <button className="import-menu-item" onClick={() => runImport(onImportEpic)}>
+                  <EpicIcon />
+                  <span>Epic Games</span>
+                </button>
+                <button className="import-menu-item" onClick={() => runImport(onImportGog)}>
+                  <GogIcon />
+                  <span>GOG</span>
+                </button>
+                <button className="import-menu-item" onClick={() => runImport(onImportUbisoft)}>
+                  <UbisoftIcon />
+                  <span>Ubisoft Connect</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         <button
           className="btn"
           onClick={onFetchCovers}

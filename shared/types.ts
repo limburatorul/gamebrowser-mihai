@@ -138,7 +138,10 @@ export interface GameApi {
   onScanProgress(cb: (progress: ScanProgress | null) => void): () => void
   importCandidates(candidates: GameCandidate[]): Promise<Game[]>
   launch(id: string): Promise<void>
-  update(id: string, patch: Partial<Pick<Game, 'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds'>>): Promise<Game | null>
+  update(
+    id: string,
+    patch: Partial<Pick<Game, 'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds' | 'steamAppId'>>
+  ): Promise<Game | null>
   setCover(id: string): Promise<Game | null>
   setExePath(id: string): Promise<Game | null>
   remove(id: string): Promise<void>
