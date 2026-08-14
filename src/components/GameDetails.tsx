@@ -5,6 +5,7 @@ import { formatDate, formatPlaytime } from '../lib/localFile'
 
 interface Props {
   game: Game
+  visible: boolean
   running: boolean
   onLaunch: (id: string) => void
   onToggleFavorite: (id: string) => void
@@ -20,6 +21,7 @@ const PLATFORM_SOURCES = new Set(['steam', 'epic', 'gog'])
 
 export default function GameDetails({
   game,
+  visible,
   running,
   onLaunch,
   onToggleFavorite,
@@ -31,7 +33,7 @@ export default function GameDetails({
   onDeleteFromDisk
 }: Props): JSX.Element {
   return (
-    <div className="details-bar">
+    <div className={`details-bar ${visible ? '' : 'details-bar-hidden'}`}>
       <div className="details-cover">
         <CoverImage game={game} className="cover-img" />
       </div>

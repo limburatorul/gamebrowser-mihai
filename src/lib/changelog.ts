@@ -6,6 +6,14 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.13.0',
+    changes: [
+      'New: left/right buttons (and arrow keys) to step through screenshots in the enlarged view.',
+      'New: the details bar at the bottom now slides out of the way while a screenshot is enlarged, and back in when it closes.',
+      'Polish: the details bar and the Game Details panel now slide in/out (instead of appearing/disappearing instantly) when selecting or deselecting a game, and when opening/closing the panel.'
+    ]
+  },
+  {
     version: '1.12.0',
     changes: [
       'Steam screenshots and banner images are now saved locally (in a screenshots folder) instead of loaded from the internet each time, so they load instantly and are included in your backups.',

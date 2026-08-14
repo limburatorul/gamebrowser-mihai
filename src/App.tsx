@@ -93,6 +93,8 @@ export default function App(): JSX.Element {
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [whatsNew, setWhatsNew] = useState<{ title: string; entries: ChangelogEntry[] } | null>(null)
   const [detailsPanelOpen, setDetailsPanelOpen] = useState(false)
+  const [detailsPanelMounted, setDetailsPanelMounted] = useState(false)
+  const [screenshotLightboxOpen, setScreenshotLightboxOpen] = useState(false)
 
   useEffect(() => {
     localStorage.setItem('tileWidth', String(tileWidth))
@@ -268,6 +270,25 @@ export default function App(): JSX.Element {
     const [id] = selectedIds
     return games.find((g) => g.id === id) ?? null
   }, [games, selectedIds])
+
+  // Keeps the last-selected game around after deselection so the details bar
+  // has something to show while it slides out, instead of vanishing instantly.
+  const [lastSelectedGame, setLastSelectedGame] = useState<Game | null>(null)
+  useEffect(() => {
+    if (selectedGame) setLastSelectedGame(selectedGame)
+  }, [selectedGame])
+  const detailsBarVisible = selectedGame !== null && !screenshotLightboxOpen
+
+  // Same idea for the details panel's game, but frozen the moment the panel
+  // closes rather than tracking every selection change - reopening later
+  // still shows the right game since it's only frozen while actually closed.
+  const [lastPanelGame, setLastPanelGame] = useState<Game | null>(null)
+  useEffect(() => {
+    if (detailsPanelOpen) setLastPanelGame(selectedGame)
+  }, [detailsPanelOpen, selectedGame])
+  useEffect(() => {
+    if (detailsPanelOpen) setDetailsPanelMounted(true)
+  }, [detailsPanelOpen])
 
   function handleItemClick(id: string, event: React.MouseEvent): void {
     if (event.shiftKey && anchorId) {
@@ -799,15 +820,21 @@ export default function App(): JSX.Element {
             onLaunch={handleLaunch}
           />
         </main>
-        {detailsPanelOpen && (
-          <DetailsPanel game={selectedGame} onClose={() => setDetailsPanelOpen(false)} />
+        {detailsPanelMounted && (
+          <DetailsPanel
+            game={lastPanelGame}
+            open={detailsPanelOpen}
+            onClose={() => setDetailsPanelOpen(false)}
+            onLightboxOpenChange={setScreenshotLightboxOpen}
+          />
         )}
       </div>
 
-      {selectedGame && (
+      {lastSelectedGame && (
         <GameDetails
-          game={selectedGame}
-          running={runningIds.has(selectedGame.id)}
+          game={selectedGame ?? lastSelectedGame}
+          visible={detailsBarVisible}
+          running={runningIds.has(lastSelectedGame.id)}
           onLaunch={handleLaunch}
           onToggleFavorite={handleToggleFavorite}
           onRate={handleRateGame}

@@ -4,10 +4,12 @@ import { toLocalFileUrl } from '../lib/localFile'
 
 interface Props {
   game: Game | null
+  open: boolean
   onClose: () => void
+  onLightboxOpenChange: (open: boolean) => void
 }
 
-export default function DetailsPanel({ game, onClose }: Props): JSX.Element {
+export default function DetailsPanel({ game, open, onClose, onLightboxOpenChange }: Props): JSX.Element {
   const [details, setDetails] = useState<SteamGameDetails | null>(null)
   const [loading, setLoading] = useState(false)
   const [notFound, setNotFound] = useState(false)
@@ -35,17 +37,38 @@ export default function DetailsPanel({ game, onClose }: Props): JSX.Element {
     }
   }, [game?.id])
 
+  const screenshots = details?.screenshots ?? []
+  const lightboxIndex = lightboxPath ? screenshots.indexOf(lightboxPath) : -1
+
+  function showPrev(): void {
+    if (screenshots.length === 0) return
+    const idx = lightboxIndex <= 0 ? screenshots.length - 1 : lightboxIndex - 1
+    setLightboxPath(screenshots[idx])
+  }
+
+  function showNext(): void {
+    if (screenshots.length === 0) return
+    const idx = lightboxIndex === screenshots.length - 1 ? 0 : lightboxIndex + 1
+    setLightboxPath(screenshots[idx])
+  }
+
+  useEffect(() => {
+    onLightboxOpenChange(lightboxPath !== null)
+  }, [lightboxPath, onLightboxOpenChange])
+
   useEffect(() => {
     if (!lightboxPath) return
     function onKeyDown(e: KeyboardEvent): void {
       if (e.key === 'Escape') setLightboxPath(null)
+      if (e.key === 'ArrowLeft') showPrev()
+      if (e.key === 'ArrowRight') showNext()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [lightboxPath])
 
   return (
-    <aside className="details-panel">
+    <aside className={`details-panel ${open ? '' : 'details-panel-hidden'}`}>
       <div className="details-panel-header">
         <span className="details-panel-title">{game ? game.name : 'Game Details'}</span>
         <button className="btn icon-btn" title="Close" onClick={onClose}>
@@ -108,11 +131,11 @@ export default function DetailsPanel({ game, onClose }: Props): JSX.Element {
             </div>
           )}
 
-          {details.screenshots.length > 0 && (
+          {screenshots.length > 0 && (
             <>
               <div className="details-panel-heading">Screenshots</div>
               <div className="details-panel-screenshots">
-                {details.screenshots.map((path) => (
+                {screenshots.map((path) => (
                   <img
                     key={path}
                     src={toLocalFileUrl(path) ?? undefined}
@@ -139,12 +162,36 @@ export default function DetailsPanel({ game, onClose }: Props): JSX.Element {
           >
             ✕
           </button>
+          {screenshots.length > 1 && (
+            <button
+              className="screenshot-lightbox-nav screenshot-lightbox-prev"
+              title="Previous"
+              onClick={(e) => {
+                e.stopPropagation()
+                showPrev()
+              }}
+            >
+              ‹
+            </button>
+          )}
           <img
             src={toLocalFileUrl(lightboxPath) ?? undefined}
             alt="Screenshot"
             className="screenshot-lightbox-img"
             onClick={(e) => e.stopPropagation()}
           />
+          {screenshots.length > 1 && (
+            <button
+              className="screenshot-lightbox-nav screenshot-lightbox-next"
+              title="Next"
+              onClick={(e) => {
+                e.stopPropagation()
+                showNext()
+              }}
+            >
+              ›
+            </button>
+          )}
         </div>
       )}
     </aside>
