@@ -12,9 +12,16 @@ export interface Game {
   source: 'manual' | 'folder-scan' | 'steam' | 'epic' | 'gog'
   genres: string[]
   tags: string[]
+  rating: number | null
+  categoryIds: string[]
   steamAppId: number | null
   epicAppName: string | null
   gogProductId: string | null
+}
+
+export interface Category {
+  id: string
+  name: string
 }
 
 export interface GameCandidate {
@@ -29,7 +36,7 @@ export interface ScanProgress {
   currentName: string
 }
 
-export type SortKey = 'name' | 'dateAdded' | 'lastPlayed' | 'playtime'
+export type SortKey = 'name' | 'dateAdded' | 'lastPlayed' | 'playtime' | 'rating'
 export type ViewMode = 'grid' | 'list'
 
 export interface CoverFetchResult {
@@ -113,7 +120,7 @@ export interface GameApi {
   onScanProgress(cb: (progress: ScanProgress | null) => void): () => void
   importCandidates(candidates: GameCandidate[]): Promise<Game[]>
   launch(id: string): Promise<void>
-  update(id: string, patch: Partial<Pick<Game, 'name' | 'favorite' | 'tags'>>): Promise<Game | null>
+  update(id: string, patch: Partial<Pick<Game, 'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds'>>): Promise<Game | null>
   setCover(id: string): Promise<Game | null>
   setExePath(id: string): Promise<Game | null>
   remove(id: string): Promise<void>
@@ -138,6 +145,11 @@ export interface GameApi {
   importGogLibrary(): Promise<ImportResult>
   checkForUpdate(): Promise<UpdateCheckResult>
   downloadUpdateAndRestart(assetUrl: string, assetSize: number, version: string): Promise<UpdateApplyResult>
+  getCategories(): Promise<Category[]>
+  createCategory(name: string): Promise<Category>
+  renameCategory(id: string, name: string): Promise<Category | null>
+  deleteCategory(id: string): Promise<void>
+  onCategoriesChanged(cb: (categories: Category[]) => void): () => void
 }
 
 declare global {

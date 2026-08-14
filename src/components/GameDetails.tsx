@@ -1,5 +1,6 @@
 import type { Game } from '@shared/types'
 import CoverImage from './CoverImage'
+import StarRating from './StarRating'
 import { formatDate, formatPlaytime } from '../lib/localFile'
 
 interface Props {
@@ -7,6 +8,7 @@ interface Props {
   running: boolean
   onLaunch: (id: string) => void
   onToggleFavorite: (id: string) => void
+  onRate: (id: string, rating: number | null) => void
   onEdit: (id: string) => void
   onSetCover: (id: string) => void
   onRemove: (id: string) => void
@@ -17,6 +19,7 @@ export default function GameDetails({
   running,
   onLaunch,
   onToggleFavorite,
+  onRate,
   onEdit,
   onSetCover,
   onRemove
@@ -32,6 +35,7 @@ export default function GameDetails({
           <span>Playtime: {formatPlaytime(game.playtimeSeconds)}</span>
           <span>Last played: {formatDate(game.lastPlayed)}</span>
           <span>Added: {formatDate(game.dateAdded)}</span>
+          <StarRating value={game.rating} onChange={(r) => onRate(game.id, r)} size="sm" />
         </div>
       </div>
       <div className="details-actions">

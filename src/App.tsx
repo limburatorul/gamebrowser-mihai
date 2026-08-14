@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type {
   BackupPrefs,
+  Category,
   Game,
   GameCandidate,
   LibrarySyncEvent,
@@ -53,6 +54,7 @@ export default function App(): JSX.Element {
   const [coverFetchProgress, setCoverFetchProgress] = useState<ScanProgress | null>(null)
   const [infoMessage, setInfoMessage] = useState<{ title: string; message: string } | null>(null)
   const [syncToasts, setSyncToasts] = useState<SyncToast[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [settings, setSettings] = useState<Settings>({
     igdbClientId: '',
     igdbClientSecret: '',
@@ -92,6 +94,8 @@ export default function App(): JSX.Element {
   useEffect(() => {
     window.api.getAll().then(setGames)
     window.api.getSettings().then(setSettings)
+    window.api.getCategories().then(setCategories)
+    const offCategories = window.api.onCategoriesChanged(setCategories)
     const offLibrary = window.api.onLibraryChanged(setGames)
     const offLibrarySynced = window.api.onLibrarySynced((events: LibrarySyncEvent[]) => {
       const newToasts: SyncToast[] = []
@@ -118,6 +122,7 @@ export default function App(): JSX.Element {
     return () => {
       offLibrary()
       offLibrarySynced()
+      offCategories()
       offRunning()
       offScanProgress()
       offCoverFetchProgress()
@@ -213,6 +218,10 @@ export default function App(): JSX.Element {
     if (filter === 'steam') list = list.filter((g) => g.source === 'steam')
     if (filter === 'epic') list = list.filter((g) => g.source === 'epic')
     if (filter === 'gog') list = list.filter((g) => g.source === 'gog')
+    if (filter.startsWith('category:')) {
+      const categoryId = filter.slice('category:'.length)
+      list = list.filter((g) => g.categoryIds.includes(categoryId))
+    }
     if (genreFilter) list = list.filter((g) => g.genres.includes(genreFilter))
     if (tagFilter) list = list.filter((g) => g.tags.includes(tagFilter))
     if (search.trim()) {
@@ -230,6 +239,8 @@ export default function App(): JSX.Element {
           return (b.lastPlayed ?? '').localeCompare(a.lastPlayed ?? '')
         case 'playtime':
           return b.playtimeSeconds - a.playtimeSeconds
+        case 'rating':
+          return (b.rating ?? -1) - (a.rating ?? -1)
         default:
           return 0
       }
@@ -533,11 +544,21 @@ export default function App(): JSX.Element {
     void window.api.update(id, { favorite: !game.favorite })
   }
 
+  function handleRateGame(id: string, rating: number | null): void {
+    void window.api.update(id, { rating })
+  }
+
   function handleEdit(id: string): void {
     setEditingId(id)
   }
 
-  async function handleSaveEdit(patch: { name: string; favorite: boolean; tags: string[] }): Promise<void> {
+  async function handleSaveEdit(patch: {
+    name: string
+    favorite: boolean
+    tags: string[]
+    rating: number | null
+    categoryIds: string[]
+  }): Promise<void> {
     if (!editingId) return
     setSavingEdit(true)
     try {
@@ -648,6 +669,10 @@ export default function App(): JSX.Element {
           steamCount={games.filter((g) => g.source === 'steam').length}
           epicCount={games.filter((g) => g.source === 'epic').length}
           gogCount={games.filter((g) => g.source === 'gog').length}
+          categories={categories}
+          categoryCounts={Object.fromEntries(
+            categories.map((c) => [c.id, games.filter((g) => g.categoryIds.includes(c.id)).length])
+          )}
           totalPlaytimeSeconds={totalPlaytimeSeconds}
           playtimeEntries={playtimeEntries}
           selectedIds={selectedIds}
@@ -679,6 +704,7 @@ export default function App(): JSX.Element {
           running={runningIds.has(selectedGame.id)}
           onLaunch={handleLaunch}
           onToggleFavorite={handleToggleFavorite}
+          onRate={handleRateGame}
           onEdit={handleEdit}
           onSetCover={handleSetCover}
           onRemove={handleRemove}
@@ -776,6 +802,7 @@ export default function App(): JSX.Element {
       {editingGame && (
         <EditGameDialog
           game={editingGame}
+          categories={categories}
           saving={savingEdit}
           onCancel={() => setEditingId(null)}
           onSave={handleSaveEdit}

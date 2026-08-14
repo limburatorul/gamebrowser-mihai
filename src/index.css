@@ -256,6 +256,58 @@ select {
   margin: 0 auto;
 }
 
+.sidebar-category-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-category-row .sidebar-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-category-actions {
+  position: absolute;
+  right: 10px;
+  display: none;
+  gap: 4px;
+}
+
+.sidebar-category-row:hover .sidebar-category-actions {
+  display: flex;
+}
+
+.sidebar-category-action {
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.sidebar-category-action:hover {
+  background: var(--bg-3);
+  color: var(--text-0);
+}
+
+.sidebar-category-input {
+  width: calc(100% - 32px);
+  margin: 0 16px;
+  background: var(--bg-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--text-0);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.sidebar-add-category {
+  color: var(--text-2);
+}
+
 .sidebar-count {
   margin-left: auto;
   color: var(--text-2);
@@ -823,6 +875,18 @@ select {
   cursor: pointer;
 }
 
+.edit-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.edit-category-list .edit-checkbox-row {
+  margin-top: 8px;
+}
+
 .edit-cover-row {
   display: flex;
   gap: 14px;
@@ -1311,6 +1375,34 @@ select {
 
 .sync-toast-count-removed {
   color: var(--danger);
+}
+
+.star-rating {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.star-rating .star {
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.star-rating .star.filled {
+  color: #f5c518;
+}
+
+.star-rating.interactive .star {
+  cursor: pointer;
+}
+
+.star-rating.interactive .star:hover {
+  color: #f5c518;
+  opacity: 0.8;
+}
+
+.star-rating-sm .star {
+  font-size: 12px;
 }
 
 @keyframes sync-toast-in {

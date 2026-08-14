@@ -116,6 +116,7 @@ export default function TopBar({
           <option value="dateAdded">Date Added</option>
           <option value="lastPlayed">Last Played</option>
           <option value="playtime">Playtime</option>
+          <option value="rating">Rating</option>
         </select>
 
         {genres.length > 0 && (

@@ -16,7 +16,8 @@ import type {
   ImportResult,
   UpdateCheckResult,
   UpdateApplyResult,
-  LibrarySyncEvent
+  LibrarySyncEvent,
+  Category
 } from '../../shared/types'
 import { createZip, extractZip } from './zip'
 import { writeFileAtomic, copyFileAtomic } from './fsAtomic'
@@ -59,6 +60,7 @@ const libraryFile = join(userDataPath, 'library.json')
 const coversDir = join(userDataPath, 'covers')
 const iconsDir = join(userDataPath, 'icons')
 const settingsFile = join(userDataPath, 'settings.json')
+const categoriesFile = join(userDataPath, 'categories.json')
 
 const UPDATE_REPO = 'limburatorul/gamebrowser-mihai'
 
@@ -83,6 +85,8 @@ async function loadLibrary(): Promise<void> {
       ...g,
       genres: g.genres ?? [],
       tags: g.tags ?? [],
+      rating: g.rating ?? null,
+      categoryIds: g.categoryIds ?? [],
       steamAppId: g.steamAppId ?? null,
       epicAppName: g.epicAppName ?? null,
       gogProductId: g.gogProductId ?? null
@@ -107,6 +111,25 @@ async function loadSettings(): Promise<void> {
 
 async function saveSettingsToDisk(): Promise<void> {
   await fs.writeFile(settingsFile, JSON.stringify(settings, null, 2), 'utf-8')
+}
+
+let categories: Category[] = []
+
+async function loadCategories(): Promise<void> {
+  try {
+    const raw = await fs.readFile(categoriesFile, 'utf-8')
+    categories = JSON.parse(raw) as Category[]
+  } catch {
+    categories = []
+  }
+}
+
+async function saveCategories(): Promise<void> {
+  await fs.writeFile(categoriesFile, JSON.stringify(categories, null, 2), 'utf-8')
+}
+
+function broadcastCategories(): void {
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send('categories:changed', categories)
 }
 
 function broadcastLibrary(): void {
@@ -675,6 +698,8 @@ async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]
       source: 'steam',
       genres: [],
       tags: [],
+      rating: null,
+      categoryIds: [],
       steamAppId: g.appId,
       epicAppName: null,
       gogProductId: null
@@ -723,6 +748,8 @@ async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
       source: 'epic',
       genres: [],
       tags: [],
+      rating: null,
+      categoryIds: [],
       steamAppId: null,
       epicAppName: m.appName,
       gogProductId: null
@@ -757,6 +784,8 @@ async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
       source: 'gog',
       genres: [],
       tags: [],
+      rating: null,
+      categoryIds: [],
       steamAppId: null,
       epicAppName: null,
       gogProductId: g.productId
@@ -875,6 +904,7 @@ async function runBackup(): Promise<BackupResult> {
       [
         { zipPath: 'library.json', fsPath: libraryFile },
         { zipPath: 'settings.json', fsPath: settingsFile },
+        { zipPath: 'categories.json', fsPath: categoriesFile },
         { zipPath: 'covers', fsPath: coversDir, isDir: true },
         { zipPath: 'icons', fsPath: iconsDir, isDir: true }
       ],
@@ -893,7 +923,9 @@ async function restoreFromZip(zipPath: string): Promise<BackupResult> {
     await extractZip(zipPath, userDataPath)
     await loadLibrary()
     await loadSettings()
+    await loadCategories()
     broadcastLibrary()
+    broadcastCategories()
     return { ok: true, path: zipPath, settings }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e), settings }
@@ -1045,6 +1077,8 @@ function registerIpcHandlers(): void {
       source: 'manual',
       genres: [],
       tags: [],
+      rating: null,
+      categoryIds: [],
       steamAppId: null,
       epicAppName: null,
       gogProductId: null
@@ -1107,6 +1141,8 @@ function registerIpcHandlers(): void {
         source: 'folder-scan',
         genres: [],
         tags: [],
+        rating: null,
+        categoryIds: [],
         steamAppId: null,
         epicAppName: null,
         gogProductId: null
@@ -1191,14 +1227,17 @@ function registerIpcHandlers(): void {
     helper.once('error', () => void finish())
   })
 
-  ipcMain.handle('games:update', async (_e, id: string, patch: Partial<Pick<Game, 'name' | 'favorite' | 'tags'>>) => {
-    const game = games.find((g) => g.id === id)
-    if (!game) return null
-    Object.assign(game, patch)
-    await saveLibrary()
-    broadcastLibrary()
-    return game
-  })
+  ipcMain.handle(
+    'games:update',
+    async (_e, id: string, patch: Partial<Pick<Game, 'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds'>>) => {
+      const game = games.find((g) => g.id === id)
+      if (!game) return null
+      Object.assign(game, patch)
+      await saveLibrary()
+      broadcastLibrary()
+      return game
+    }
+  )
 
   ipcMain.handle('games:setCover', async (_e, id: string) => {
     const game = games.find((g) => g.id === id)
@@ -1340,6 +1379,42 @@ function registerIpcHandlers(): void {
     return settings
   })
 
+  ipcMain.handle('categories:getAll', async (): Promise<Category[]> => categories)
+
+  ipcMain.handle('categories:create', async (_e, name: string): Promise<Category> => {
+    const category: Category = { id: randomUUID(), name: name.trim() }
+    categories.push(category)
+    await saveCategories()
+    broadcastCategories()
+    return category
+  })
+
+  ipcMain.handle('categories:rename', async (_e, id: string, name: string): Promise<Category | null> => {
+    const category = categories.find((c) => c.id === id)
+    if (!category) return null
+    category.name = name.trim()
+    await saveCategories()
+    broadcastCategories()
+    return category
+  })
+
+  ipcMain.handle('categories:delete', async (_e, id: string) => {
+    categories = categories.filter((c) => c.id !== id)
+    await saveCategories()
+    broadcastCategories()
+    let changed = false
+    for (const game of games) {
+      if (game.categoryIds.includes(id)) {
+        game.categoryIds = game.categoryIds.filter((c) => c !== id)
+        changed = true
+      }
+    }
+    if (changed) {
+      await saveLibrary()
+      broadcastLibrary()
+    }
+  })
+
   ipcMain.handle('backup:pickFolder', async (): Promise<string | null> => {
     const result = await showOpenDialog({
       properties: ['openDirectory'],
@@ -1442,6 +1517,7 @@ if (gotSingleInstanceLock) {
     await fs.mkdir(iconsDir, { recursive: true })
     await loadLibrary()
     await loadSettings()
+    await loadCategories()
 
     protocol.handle('local-file', async (request) => {
       const { pathname } = new URL(request.url)

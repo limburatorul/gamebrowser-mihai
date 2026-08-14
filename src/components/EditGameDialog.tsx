@@ -1,11 +1,19 @@
 import { useState } from 'react'
-import type { Game } from '@shared/types'
+import type { Category, Game } from '@shared/types'
 import CoverImage from './CoverImage'
+import StarRating from './StarRating'
 
 interface Props {
   game: Game
+  categories: Category[]
   onCancel: () => void
-  onSave: (patch: { name: string; favorite: boolean; tags: string[] }) => void
+  onSave: (patch: {
+    name: string
+    favorite: boolean
+    tags: string[]
+    rating: number | null
+    categoryIds: string[]
+  }) => void
   onChangeExePath: () => void
   onBrowseCover: () => void
   onSearchCover: () => Promise<boolean>
@@ -23,6 +31,7 @@ function parseTags(text: string): string[] {
 
 export default function EditGameDialog({
   game,
+  categories,
   onCancel,
   onSave,
   onChangeExePath,
@@ -33,12 +42,18 @@ export default function EditGameDialog({
   const [name, setName] = useState(game.name)
   const [favorite, setFavorite] = useState(game.favorite)
   const [tagsText, setTagsText] = useState(game.tags.join(', '))
+  const [rating, setRating] = useState(game.rating)
+  const [categoryIds, setCategoryIds] = useState<string[]>(game.categoryIds)
   const [searchingCover, setSearchingCover] = useState(false)
   const [coverSearchMessage, setCoverSearchMessage] = useState<string | null>(null)
 
+  function toggleCategory(id: string): void {
+    setCategoryIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]))
+  }
+
   function save(): void {
     if (!name.trim()) return
-    onSave({ name: name.trim(), favorite, tags: parseTags(tagsText) })
+    onSave({ name: name.trim(), favorite, tags: parseTags(tagsText), rating, categoryIds })
   }
 
   async function handleSearchCover(): Promise<void> {
@@ -106,6 +121,27 @@ export default function EditGameDialog({
           }}
         />
         <p className="settings-note">Comma-separated. Your own labels, separate from auto-fetched genres.</p>
+
+        <label className="settings-label">Your Rating</label>
+        <StarRating value={rating} onChange={setRating} />
+
+        {categories.length > 0 && (
+          <>
+            <label className="settings-label">Categories</label>
+            <div className="edit-category-list">
+              {categories.map((c) => (
+                <label key={c.id} className="edit-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={categoryIds.includes(c.id)}
+                    onChange={() => toggleCategory(c.id)}
+                  />
+                  <span>{c.name}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
 
         <label className="edit-checkbox-row">
           <input type="checkbox" checked={favorite} onChange={(e) => setFavorite(e.target.checked)} />

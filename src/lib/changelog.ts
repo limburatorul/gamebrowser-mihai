@@ -6,6 +6,13 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.10.0',
+    changes: [
+      'New: personal 1-5 star rating on every game, set from the details bar or the Edit dialog — click the same star again to clear it. Also sortable by rating.',
+      'New: custom categories in the sidebar — create, rename, and delete your own categories, and assign games to them from the Edit dialog.'
+    ]
+  },
+  {
     version: '1.9.0',
     changes: [
       'New: Steam/Epic/GOG libraries now sync automatically on startup — newly installed games get added and uninstalled ones get removed, no need to press the manual Import buttons (toggle in Settings → Library Sync).',

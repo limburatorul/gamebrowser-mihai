@@ -12,7 +12,8 @@ import type {
   ImportResult,
   UpdateCheckResult,
   UpdateApplyResult,
-  LibrarySyncEvent
+  LibrarySyncEvent,
+  Category
 } from '../../shared/types'
 
 const api: GameApi = {
@@ -69,7 +70,17 @@ const api: GameApi = {
   importGogLibrary: (): Promise<ImportResult> => ipcRenderer.invoke('gog:import'),
   checkForUpdate: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('update:check'),
   downloadUpdateAndRestart: (assetUrl: string, assetSize: number, version: string): Promise<UpdateApplyResult> =>
-    ipcRenderer.invoke('update:downloadAndRestart', assetUrl, assetSize, version)
+    ipcRenderer.invoke('update:downloadAndRestart', assetUrl, assetSize, version),
+  getCategories: (): Promise<Category[]> => ipcRenderer.invoke('categories:getAll'),
+  createCategory: (name: string): Promise<Category> => ipcRenderer.invoke('categories:create', name),
+  renameCategory: (id: string, name: string): Promise<Category | null> =>
+    ipcRenderer.invoke('categories:rename', id, name),
+  deleteCategory: (id: string): Promise<void> => ipcRenderer.invoke('categories:delete', id),
+  onCategoriesChanged: (cb: (categories: Category[]) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, categories: Category[]): void => cb(categories)
+    ipcRenderer.on('categories:changed', listener)
+    return () => ipcRenderer.removeListener('categories:changed', listener)
+  }
 }
 
 contextBridge.exposeInMainWorld('api', api)

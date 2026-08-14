@@ -1,7 +1,18 @@
+import { useState } from 'react'
+import type { Category } from '@shared/types'
 import { formatPlaytime } from '../lib/localFile'
 import { SteamIcon, EpicIcon, GogIcon } from './icons/PlatformIcons'
+import ConfirmDialog from './ConfirmDialog'
 
-export type LibraryFilter = 'all' | 'favorites' | 'recent' | 'no-cover' | 'steam' | 'epic' | 'gog'
+export type LibraryFilter =
+  | 'all'
+  | 'favorites'
+  | 'recent'
+  | 'no-cover'
+  | 'steam'
+  | 'epic'
+  | 'gog'
+  | `category:${string}`
 
 export interface PlaytimeEntry {
   id: string
@@ -18,6 +29,8 @@ interface Props {
   steamCount: number
   epicCount: number
   gogCount: number
+  categories: Category[]
+  categoryCounts: Record<string, number>
   totalPlaytimeSeconds: number
   playtimeEntries: PlaytimeEntry[]
   selectedIds: Set<string>
@@ -45,6 +58,8 @@ export default function Sidebar({
   steamCount,
   epicCount,
   gogCount,
+  categories,
+  categoryCounts,
   totalPlaytimeSeconds,
   playtimeEntries,
   selectedIds,
@@ -52,6 +67,13 @@ export default function Sidebar({
   onOpenAbout,
   onOpenDashboard
 }: Props): JSX.Element {
+  const [addingCategory, setAddingCategory] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameText, setRenameText] = useState('')
+  const [deletingCategory, setDeletingCategory] = useState<Category | null>(null)
+  const [busy, setBusy] = useState(false)
+
   function countFor(key: LibraryFilter): number | '' {
     if (key === 'all') return totalCount
     if (key === 'favorites') return favoriteCount
@@ -60,6 +82,57 @@ export default function Sidebar({
     if (key === 'epic') return epicCount
     if (key === 'gog') return gogCount
     return ''
+  }
+
+  async function handleAddCategory(): Promise<void> {
+    if (busy) return
+    const name = newCategoryName.trim()
+    if (!name) {
+      setAddingCategory(false)
+      return
+    }
+    setBusy(true)
+    try {
+      const category = await window.api.createCategory(name)
+      onFilterChange(`category:${category.id}`)
+    } finally {
+      setBusy(false)
+      setAddingCategory(false)
+      setNewCategoryName('')
+    }
+  }
+
+  function startRename(category: Category): void {
+    setRenamingId(category.id)
+    setRenameText(category.name)
+  }
+
+  async function handleRename(): Promise<void> {
+    if (busy) return
+    const name = renameText.trim()
+    if (!renamingId || !name) {
+      setRenamingId(null)
+      return
+    }
+    setBusy(true)
+    try {
+      await window.api.renameCategory(renamingId, name)
+    } finally {
+      setBusy(false)
+      setRenamingId(null)
+    }
+  }
+
+  async function handleDeleteCategory(): Promise<void> {
+    if (!deletingCategory) return
+    setBusy(true)
+    try {
+      await window.api.deleteCategory(deletingCategory.id)
+      if (filter === `category:${deletingCategory.id}`) onFilterChange('all')
+    } finally {
+      setBusy(false)
+      setDeletingCategory(null)
+    }
   }
 
   return (
@@ -93,6 +166,95 @@ export default function Sidebar({
           </button>
         </li>
       </ul>
+
+      <div className="sidebar-section-title">Categories</div>
+      <ul className="sidebar-list">
+        {categories.map((category) => {
+          const key: LibraryFilter = `category:${category.id}`
+          return (
+            <li key={category.id} className="sidebar-category-row">
+              {renamingId === category.id ? (
+                <input
+                  className="sidebar-category-input"
+                  autoFocus
+                  value={renameText}
+                  disabled={busy}
+                  onChange={(e) => setRenameText(e.target.value)}
+                  onBlur={() => void handleRename()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void handleRename()
+                    if (e.key === 'Escape') setRenamingId(null)
+                  }}
+                />
+              ) : (
+                <button
+                  className={`sidebar-item ${filter === key ? 'active' : ''}`}
+                  onClick={() => onFilterChange(key)}
+                >
+                  <span className="sidebar-icon">▸</span>
+                  <span>{category.name}</span>
+                  <span className="sidebar-count">{categoryCounts[category.id] ?? 0}</span>
+                </button>
+              )}
+              {renamingId !== category.id && (
+                <span className="sidebar-category-actions">
+                  <button
+                    className="sidebar-category-action"
+                    title="Rename"
+                    onClick={() => startRename(category)}
+                  >
+                    ✎
+                  </button>
+                  <button
+                    className="sidebar-category-action"
+                    title="Delete"
+                    onClick={() => setDeletingCategory(category)}
+                  >
+                    🗑
+                  </button>
+                </span>
+              )}
+            </li>
+          )
+        })}
+        <li>
+          {addingCategory ? (
+            <input
+              className="sidebar-category-input"
+              autoFocus
+              placeholder="Category name…"
+              value={newCategoryName}
+              disabled={busy}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              onBlur={() => void handleAddCategory()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleAddCategory()
+                if (e.key === 'Escape') {
+                  setAddingCategory(false)
+                  setNewCategoryName('')
+                }
+              }}
+            />
+          ) : (
+            <button className="sidebar-item sidebar-add-category" onClick={() => setAddingCategory(true)}>
+              <span className="sidebar-icon">+</span>
+              <span>New Category</span>
+            </button>
+          )}
+        </li>
+      </ul>
+
+      {deletingCategory && (
+        <ConfirmDialog
+          title="Delete Category"
+          message={`Delete "${deletingCategory.name}"? Games stay in your library — only the category itself is removed.`}
+          confirmLabel="Delete"
+          danger
+          busy={busy}
+          onCancel={() => setDeletingCategory(null)}
+          onConfirm={() => void handleDeleteCategory()}
+        />
+      )}
 
       {playtimeEntries.length > 0 && (
         <>
