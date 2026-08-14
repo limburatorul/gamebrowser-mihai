@@ -6,6 +6,14 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.9.0',
+    changes: [
+      'New: Steam/Epic/GOG libraries now sync automatically on startup — newly installed games get added and uninstalled ones get removed, no need to press the manual Import buttons (toggle in Settings → Library Sync).',
+      'New: a subtle notification in the bottom-right corner shows when games were added or removed by that sync.',
+      'New: the Steam/Epic/GOG sidebar filters now show each platform\'s real logo instead of a placeholder emoji.'
+    ]
+  },
+  {
     version: '1.7.0',
     changes: [
       'New: a "What\'s New" dialog now shows automatically after an update, summarizing what changed — also viewable anytime from About → View Changelog.'

@@ -15,7 +15,8 @@ import type {
   BackupEntry,
   ImportResult,
   UpdateCheckResult,
-  UpdateApplyResult
+  UpdateApplyResult,
+  LibrarySyncEvent
 } from '../../shared/types'
 import { createZip, extractZip } from './zip'
 import { writeFileAtomic, copyFileAtomic } from './fsAtomic'
@@ -69,7 +70,8 @@ let settings: Settings = {
   backupFolder: '',
   backupEnabled: false,
   backupIntervalHours: 24,
-  lastBackupAt: null
+  lastBackupAt: null,
+  librarySyncEnabled: true
 }
 const runningProcesses = new Map<string, { child: ChildProcess; start: number }>()
 
@@ -109,6 +111,10 @@ async function saveSettingsToDisk(): Promise<void> {
 
 function broadcastLibrary(): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send('library:changed', games)
+}
+
+function broadcastLibrarySynced(events: LibrarySyncEvent[]): void {
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send('library:synced', events)
 }
 
 function broadcastRunning(id: string, running: boolean): void {
@@ -622,6 +628,223 @@ async function parseEpicManifests(): Promise<EpicManifest[]> {
   return manifests
 }
 
+interface InstalledSteamGame {
+  appId: number
+  name: string
+  installDir: string
+}
+
+// Returns null when Steam itself isn't found (registry lookup + both standard
+// install paths all failed) so callers can tell "not installed" apart from
+// "installed with zero games" - the two need different handling for sync
+// (skip removal vs. legitimately remove everything).
+async function findInstalledSteamGames(): Promise<InstalledSteamGame[] | null> {
+  const steamPath = await findSteamPath()
+  if (!steamPath) return null
+  const libraries = await findSteamLibraryFolders(steamPath)
+  const result: InstalledSteamGame[] = []
+  for (const lib of libraries) {
+    const manifests = await parseAppManifests(lib)
+    for (const m of manifests) {
+      result.push({ appId: Number(m.appid), name: m.name, installDir: join(lib, 'steamapps', 'common', m.installdir) })
+    }
+  }
+  return result
+}
+
+async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]> {
+  const existingAppIds = new Set(games.map((g) => g.steamAppId).filter((id): id is number => id !== null))
+  const added: Game[] = []
+  for (const g of installed) {
+    if (existingAppIds.has(g.appId)) continue
+    const exe = await findBestExe(g.installDir)
+    if (!exe) continue
+    const id = randomUUID()
+    const iconPath = await extractIcon(exe, id)
+    const game: Game = {
+      id,
+      name: g.name,
+      exePath: exe,
+      installDir: g.installDir,
+      coverPath: null,
+      iconPath,
+      favorite: false,
+      dateAdded: new Date().toISOString(),
+      lastPlayed: null,
+      playtimeSeconds: 0,
+      source: 'steam',
+      genres: [],
+      tags: [],
+      steamAppId: g.appId,
+      epicAppName: null,
+      gogProductId: null
+    }
+    games.push(game)
+    added.push(game)
+    existingAppIds.add(g.appId)
+  }
+  return added
+}
+
+// null distinguishes "Epic Games Launcher not found" (manifests dir doesn't
+// exist) from "found, but nothing installed" - same reasoning as Steam above.
+async function findInstalledEpicGames(): Promise<EpicManifest[] | null> {
+  const entries = await safeReaddir(EPIC_MANIFESTS_DIR)
+  if (!entries) return null
+  return parseEpicManifests()
+}
+
+async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
+  const existingAppNames = new Set(games.map((g) => g.epicAppName).filter((n): n is string => n !== null))
+  const added: Game[] = []
+  for (const m of installed) {
+    if (existingAppNames.has(m.appName)) continue
+    let exePath = join(m.installLocation, m.launchExecutable)
+    try {
+      await fs.access(exePath)
+    } catch {
+      const fallback = await findBestExe(m.installLocation)
+      if (!fallback) continue
+      exePath = fallback
+    }
+    const id = randomUUID()
+    const iconPath = await extractIcon(exePath, id)
+    const game: Game = {
+      id,
+      name: m.displayName,
+      exePath,
+      installDir: m.installLocation,
+      coverPath: null,
+      iconPath,
+      favorite: false,
+      dateAdded: new Date().toISOString(),
+      lastPlayed: null,
+      playtimeSeconds: 0,
+      source: 'epic',
+      genres: [],
+      tags: [],
+      steamAppId: null,
+      epicAppName: m.appName,
+      gogProductId: null
+    }
+    games.push(game)
+    added.push(game)
+    existingAppNames.add(m.appName)
+  }
+  return added
+}
+
+async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
+  const existingProductIds = new Set(games.map((g) => g.gogProductId).filter((id): id is string => id !== null))
+  const added: Game[] = []
+  for (const g of installed) {
+    if (existingProductIds.has(g.productId)) continue
+    const exe = await findBestExe(g.installDir)
+    if (!exe) continue
+    const id = randomUUID()
+    const iconPath = await extractIcon(exe, id)
+    const game: Game = {
+      id,
+      name: g.name,
+      exePath: exe,
+      installDir: g.installDir,
+      coverPath: null,
+      iconPath,
+      favorite: false,
+      dateAdded: new Date().toISOString(),
+      lastPlayed: null,
+      playtimeSeconds: 0,
+      source: 'gog',
+      genres: [],
+      tags: [],
+      steamAppId: null,
+      epicAppName: null,
+      gogProductId: g.productId
+    }
+    games.push(game)
+    added.push(game)
+    existingProductIds.add(g.productId)
+  }
+  return added
+}
+
+async function syncSteamLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
+  const installed = await findInstalledSteamGames()
+  if (installed === null) return { added: [], removed: [] }
+  const installedIds = new Set(installed.map((g) => g.appId))
+  const removed = games.filter((g) => g.source === 'steam' && g.steamAppId !== null && !installedIds.has(g.steamAppId))
+  const added = await addNewSteamGames(installed)
+  return { added, removed }
+}
+
+async function syncEpicLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
+  const installed = await findInstalledEpicGames()
+  if (installed === null) return { added: [], removed: [] }
+  const installedNames = new Set(installed.map((g) => g.appName))
+  const removed = games.filter(
+    (g) => g.source === 'epic' && g.epicAppName !== null && !installedNames.has(g.epicAppName)
+  )
+  const added = await addNewEpicGames(installed)
+  return { added, removed }
+}
+
+async function syncGogLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
+  let installed: GogGame[]
+  try {
+    installed = await findGogGames()
+  } catch {
+    return { added: [], removed: [] }
+  }
+  const installedIds = new Set(installed.map((g) => g.productId))
+  const removed = games.filter(
+    (g) => g.source === 'gog' && g.gogProductId !== null && !installedIds.has(g.gogProductId)
+  )
+  const added = await addNewGogGames(installed)
+  return { added, removed }
+}
+
+// Runs once at startup (see whenReady): checks Steam/Epic/GOG for games that
+// were installed or uninstalled since the last launch and mirrors that into
+// the library, without requiring the user to press the manual Import
+// buttons. Silent either way - same "just updates in the background" pattern
+// as repairIgnoredExePaths, not a popup/toast.
+async function syncPlatformLibraries(): Promise<void> {
+  if (!settings.librarySyncEnabled) return
+  const [steam, epic, gog] = await Promise.all([
+    syncSteamLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] })),
+    syncEpicLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] })),
+    syncGogLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] }))
+  ])
+  const removed = [...steam.removed, ...epic.removed, ...gog.removed]
+  const added = [...steam.added, ...epic.added, ...gog.added]
+  if (removed.length > 0) {
+    const removedIds = new Set(removed.map((g) => g.id))
+    games = games.filter((g) => !removedIds.has(g.id))
+  }
+  if (added.length === 0 && removed.length === 0) return
+  await saveLibrary()
+  broadcastLibrary()
+
+  const events: LibrarySyncEvent[] = []
+  for (const [source, result] of [
+    ['Steam', steam],
+    ['Epic', epic],
+    ['GOG', gog]
+  ] as const) {
+    if (result.added.length > 0 || result.removed.length > 0) {
+      events.push({ source, added: result.added.length, removed: result.removed.length })
+    }
+  }
+  if (events.length > 0) broadcastLibrarySynced(events)
+
+  for (const game of added) enqueueAutoCoverFetch(game)
+  for (const game of removed) {
+    for (const p of [game.coverPath, game.iconPath]) {
+      if (p) fs.unlink(p).catch(() => {})
+    }
+  }
+}
+
 // Games imported before an exe pattern was added to the ignore list may still
 // point at a helper binary (e.g. UnityCrashHandler64.exe). Re-scan their
 // install folder and swap in the real game executable.
@@ -898,47 +1121,9 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('steam:import', async (): Promise<ImportResult> => {
-    const steamPath = await findSteamPath()
-    if (!steamPath) return { imported: 0, error: 'Steam installation not found.' }
-
-    const libraries = await findSteamLibraryFolders(steamPath)
-    const existingAppIds = new Set(games.map((g) => g.steamAppId).filter((id): id is number => id !== null))
-    const created: Game[] = []
-
-    for (const lib of libraries) {
-      const manifests = await parseAppManifests(lib)
-      for (const m of manifests) {
-        const appId = Number(m.appid)
-        if (existingAppIds.has(appId)) continue
-        const installDir = join(lib, 'steamapps', 'common', m.installdir)
-        const exe = await findBestExe(installDir)
-        if (!exe) continue
-        const id = randomUUID()
-        const iconPath = await extractIcon(exe, id)
-        const game: Game = {
-          id,
-          name: m.name,
-          exePath: exe,
-          installDir,
-          coverPath: null,
-          iconPath,
-          favorite: false,
-          dateAdded: new Date().toISOString(),
-          lastPlayed: null,
-          playtimeSeconds: 0,
-          source: 'steam',
-          genres: [],
-          tags: [],
-          steamAppId: appId,
-          epicAppName: null,
-          gogProductId: null
-        }
-        games.push(game)
-        created.push(game)
-        existingAppIds.add(appId)
-      }
-    }
-
+    const installed = await findInstalledSteamGames()
+    if (installed === null) return { imported: 0, error: 'Steam installation not found.' }
+    const created = await addNewSteamGames(installed)
     if (created.length > 0) {
       await saveLibrary()
       broadcastLibrary()
@@ -948,53 +1133,9 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('epic:import', async (): Promise<ImportResult> => {
-    const manifests = await parseEpicManifests()
-    if (manifests.length === 0) {
-      const dirExists = await fs
-        .access(EPIC_MANIFESTS_DIR)
-        .then(() => true)
-        .catch(() => false)
-      if (!dirExists) return { imported: 0, error: 'Epic Games Launcher not found.' }
-    }
-
-    const existingAppNames = new Set(games.map((g) => g.epicAppName).filter((n): n is string => n !== null))
-    const created: Game[] = []
-
-    for (const m of manifests) {
-      if (existingAppNames.has(m.appName)) continue
-      let exePath = join(m.installLocation, m.launchExecutable)
-      try {
-        await fs.access(exePath)
-      } catch {
-        const fallback = await findBestExe(m.installLocation)
-        if (!fallback) continue
-        exePath = fallback
-      }
-      const id = randomUUID()
-      const iconPath = await extractIcon(exePath, id)
-      const game: Game = {
-        id,
-        name: m.displayName,
-        exePath,
-        installDir: m.installLocation,
-        coverPath: null,
-        iconPath,
-        favorite: false,
-        dateAdded: new Date().toISOString(),
-        lastPlayed: null,
-        playtimeSeconds: 0,
-        source: 'epic',
-        genres: [],
-        tags: [],
-        steamAppId: null,
-        epicAppName: m.appName,
-        gogProductId: null
-      }
-      games.push(game)
-      created.push(game)
-      existingAppNames.add(m.appName)
-    }
-
+    const installed = await findInstalledEpicGames()
+    if (installed === null) return { imported: 0, error: 'Epic Games Launcher not found.' }
+    const created = await addNewEpicGames(installed)
     if (created.length > 0) {
       await saveLibrary()
       broadcastLibrary()
@@ -1011,39 +1152,7 @@ function registerIpcHandlers(): void {
       return { imported: 0, error: e instanceof Error ? e.message : String(e) }
     }
     if (gogGames.length === 0) return { imported: 0, error: 'GOG Galaxy not found, or no games installed.' }
-
-    const existingProductIds = new Set(games.map((g) => g.gogProductId).filter((id): id is string => id !== null))
-    const created: Game[] = []
-
-    for (const g of gogGames) {
-      if (existingProductIds.has(g.productId)) continue
-      const exe = await findBestExe(g.installDir)
-      if (!exe) continue
-      const id = randomUUID()
-      const iconPath = await extractIcon(exe, id)
-      const game: Game = {
-        id,
-        name: g.name,
-        exePath: exe,
-        installDir: g.installDir,
-        coverPath: null,
-        iconPath,
-        favorite: false,
-        dateAdded: new Date().toISOString(),
-        lastPlayed: null,
-        playtimeSeconds: 0,
-        source: 'gog',
-        genres: [],
-        tags: [],
-        steamAppId: null,
-        epicAppName: null,
-        gogProductId: g.productId
-      }
-      games.push(game)
-      created.push(game)
-      existingProductIds.add(g.productId)
-    }
-
+    const created = await addNewGogGames(gogGames)
     if (created.length > 0) {
       await saveLibrary()
       broadcastLibrary()
@@ -1349,6 +1458,7 @@ if (gotSingleInstanceLock) {
     registerIpcHandlers()
     createWindow()
     void repairIgnoredExePaths()
+    void syncPlatformLibraries()
     void maybeRunScheduledBackup()
     void cleanupOldPortableExes()
     // Cheap periodic re-check rather than scheduling exactly at the interval

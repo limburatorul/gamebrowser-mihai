@@ -1,4 +1,5 @@
 import { formatPlaytime } from '../lib/localFile'
+import { SteamIcon, EpicIcon, GogIcon } from './icons/PlatformIcons'
 
 export type LibraryFilter = 'all' | 'favorites' | 'recent' | 'no-cover' | 'steam' | 'epic' | 'gog'
 
@@ -25,14 +26,14 @@ interface Props {
   onOpenDashboard: () => void
 }
 
-const ITEMS: { key: LibraryFilter; label: string; icon: string }[] = [
+const ITEMS: { key: LibraryFilter; label: string; icon: JSX.Element | string }[] = [
   { key: 'all', label: 'All Games', icon: '▦' },
   { key: 'recent', label: 'Recently Played', icon: '⏱' },
   { key: 'favorites', label: 'Favorites', icon: '★' },
   { key: 'no-cover', label: 'Missing Cover', icon: '🖼' },
-  { key: 'steam', label: 'Steam', icon: '🎮' },
-  { key: 'epic', label: 'Epic', icon: '🟪' },
-  { key: 'gog', label: 'GOG', icon: '🟣' }
+  { key: 'steam', label: 'Steam', icon: <SteamIcon /> },
+  { key: 'epic', label: 'Epic', icon: <EpicIcon /> },
+  { key: 'gog', label: 'GOG', icon: <GogIcon /> }
 ]
 
 export default function Sidebar({

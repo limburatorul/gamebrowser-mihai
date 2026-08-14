@@ -11,7 +11,8 @@ import type {
   BackupEntry,
   ImportResult,
   UpdateCheckResult,
-  UpdateApplyResult
+  UpdateApplyResult,
+  LibrarySyncEvent
 } from '../../shared/types'
 
 const api: GameApi = {
@@ -46,6 +47,11 @@ const api: GameApi = {
     const listener = (_e: Electron.IpcRendererEvent, games: Game[]): void => cb(games)
     ipcRenderer.on('library:changed', listener)
     return () => ipcRenderer.removeListener('library:changed', listener)
+  },
+  onLibrarySynced: (cb: (events: LibrarySyncEvent[]) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, events: LibrarySyncEvent[]): void => cb(events)
+    ipcRenderer.on('library:synced', listener)
+    return () => ipcRenderer.removeListener('library:synced', listener)
   },
   onGameRunningChanged: (cb: (payload: { id: string; running: boolean }) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, payload: { id: string; running: boolean }): void => cb(payload)

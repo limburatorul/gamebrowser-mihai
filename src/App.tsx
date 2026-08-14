@@ -3,6 +3,7 @@ import type {
   BackupPrefs,
   Game,
   GameCandidate,
+  LibrarySyncEvent,
   ScanProgress,
   Settings,
   SortKey,
@@ -26,6 +27,7 @@ import DashboardDialog from './components/DashboardDialog'
 import UpdateDialog from './components/UpdateDialog'
 import WhatsNewDialog from './components/WhatsNewDialog'
 import Backdrop from './components/Backdrop'
+import SyncToasts, { type SyncToast } from './components/SyncToasts'
 import { loadUiPrefs, saveUiPrefs, type UiPrefs } from './lib/uiPrefs'
 import { mixHex, hexToRgbString } from './lib/color'
 import { CHANGELOG, getChangesSince, type ChangelogEntry } from './lib/changelog'
@@ -50,6 +52,7 @@ export default function App(): JSX.Element {
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null)
   const [coverFetchProgress, setCoverFetchProgress] = useState<ScanProgress | null>(null)
   const [infoMessage, setInfoMessage] = useState<{ title: string; message: string } | null>(null)
+  const [syncToasts, setSyncToasts] = useState<SyncToast[]>([])
   const [settings, setSettings] = useState<Settings>({
     igdbClientId: '',
     igdbClientSecret: '',
@@ -57,7 +60,8 @@ export default function App(): JSX.Element {
     backupFolder: '',
     backupEnabled: false,
     backupIntervalHours: 24,
-    lastBackupAt: null
+    lastBackupAt: null,
+    librarySyncEnabled: true
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
@@ -89,6 +93,18 @@ export default function App(): JSX.Element {
     window.api.getAll().then(setGames)
     window.api.getSettings().then(setSettings)
     const offLibrary = window.api.onLibraryChanged(setGames)
+    const offLibrarySynced = window.api.onLibrarySynced((events: LibrarySyncEvent[]) => {
+      const newToasts: SyncToast[] = []
+      for (const e of events) {
+        if (e.added > 0) newToasts.push({ id: `${e.source}-added-${Date.now()}`, source: e.source, kind: 'added', count: e.added })
+        if (e.removed > 0)
+          newToasts.push({ id: `${e.source}-removed-${Date.now()}`, source: e.source, kind: 'removed', count: e.removed })
+      }
+      setSyncToasts((prev) => [...prev, ...newToasts])
+      for (const t of newToasts) {
+        setTimeout(() => setSyncToasts((prev) => prev.filter((x) => x.id !== t.id)), 6000)
+      }
+    })
     const offRunning = window.api.onGameRunningChanged(({ id, running }) => {
       setRunningIds((prev) => {
         const next = new Set(prev)
@@ -101,6 +117,7 @@ export default function App(): JSX.Element {
     const offCoverFetchProgress = window.api.onCoverFetchProgress(setCoverFetchProgress)
     return () => {
       offLibrary()
+      offLibrarySynced()
       offRunning()
       offScanProgress()
       offCoverFetchProgress()
@@ -701,6 +718,10 @@ export default function App(): JSX.Element {
       {infoMessage && (
         <InfoDialog title={infoMessage.title} message={infoMessage.message} onClose={() => setInfoMessage(null)} />
       )}
+      <SyncToasts
+        toasts={syncToasts}
+        onDismiss={(id) => setSyncToasts((prev) => prev.filter((t) => t.id !== id))}
+      />
       {settingsOpen && (
         <SettingsDialog
           initial={settings}

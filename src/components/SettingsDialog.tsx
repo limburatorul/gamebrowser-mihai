@@ -53,6 +53,7 @@ export default function SettingsDialog({
   const [backupFolder, setBackupFolder] = useState(initial.backupFolder)
   const [backupEnabled, setBackupEnabled] = useState(initial.backupEnabled)
   const [backupIntervalHours, setBackupIntervalHours] = useState(initial.backupIntervalHours)
+  const [librarySyncEnabled, setLibrarySyncEnabled] = useState(initial.librarySyncEnabled)
   const [backups, setBackups] = useState<BackupEntry[]>([])
   const [restoringPath, setRestoringPath] = useState<string | null>(null)
 
@@ -226,6 +227,22 @@ export default function SettingsDialog({
           Cycles through your library&apos;s cover art as a blurred background. Needs at least 2 games with covers.
         </p>
 
+        <h3 className="settings-section">Library Sync</h3>
+
+        <div className="settings-slider-row">
+          <span className="settings-slider-label">Sync Steam/Epic/GOG on startup</span>
+          <input
+            type="checkbox"
+            checked={librarySyncEnabled}
+            onChange={(e) => setLibrarySyncEnabled(e.target.checked)}
+          />
+        </div>
+
+        <p className="settings-note">
+          On launch, checks Steam, Epic, and GOG for games installed or uninstalled since last time and updates your
+          library automatically, without needing the manual Import buttons.
+        </p>
+
         <h3 className="settings-section">Backup &amp; Restore</h3>
 
         <div className="settings-slider-row">
@@ -385,7 +402,8 @@ export default function SettingsDialog({
                 backupFolder,
                 backupEnabled,
                 backupIntervalHours,
-                lastBackupAt: initial.lastBackupAt
+                lastBackupAt: initial.lastBackupAt,
+                librarySyncEnabled
               })
             }
           >

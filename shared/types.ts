@@ -49,6 +49,7 @@ export interface Settings {
   backupEnabled: boolean
   backupIntervalHours: number
   lastBackupAt: string | null
+  librarySyncEnabled: boolean
 }
 
 export interface BackupPrefs {
@@ -74,6 +75,12 @@ export interface BackupEntry {
 export interface ImportResult {
   imported: number
   error?: string
+}
+
+export interface LibrarySyncEvent {
+  source: 'Steam' | 'Epic' | 'GOG'
+  added: number
+  removed: number
 }
 
 export interface UpdateCheckResult {
@@ -118,6 +125,7 @@ export interface GameApi {
   getSettings(): Promise<Settings>
   saveSettings(settings: Settings): Promise<Settings>
   onLibraryChanged(cb: (games: Game[]) => void): () => void
+  onLibrarySynced(cb: (events: LibrarySyncEvent[]) => void): () => void
   onGameRunningChanged(cb: (payload: { id: string; running: boolean }) => void): () => void
   pickBackupFolder(): Promise<string | null>
   saveBackupPrefs(prefs: BackupPrefs): Promise<Settings>

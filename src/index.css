@@ -13,6 +13,7 @@
   --accent-lighter: #a3c5fa;
   --accent-rgb: 76, 139, 245;
   --danger: #e5484d;
+  --success: #3ddc84;
   --radius: 6px;
 }
 
@@ -248,6 +249,11 @@ select {
   width: 16px;
   text-align: center;
   opacity: 0.85;
+}
+
+.sidebar-icon svg {
+  display: block;
+  margin: 0 auto;
 }
 
 .sidebar-count {
@@ -1052,7 +1058,7 @@ select {
 }
 
 .about-credit {
-  margin: 6px 0 4px;
+  margin: 6px 0 14px;
   color: var(--text-1);
   font-size: 13px;
 }
@@ -1262,6 +1268,60 @@ select {
 
 .context-menu-item.danger:hover {
   background: rgba(229, 72, 77, 0.15);
+}
+
+.sync-toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.sync-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(30, 32, 36, 0.9);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  color: var(--text-1);
+  cursor: pointer;
+  pointer-events: auto;
+  animation: sync-toast-in 0.2s ease-out;
+  max-width: 320px;
+}
+
+.sync-toast-count {
+  font-weight: 600;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.sync-toast-count-added {
+  color: var(--success);
+}
+
+.sync-toast-count-removed {
+  color: var(--danger);
+}
+
+@keyframes sync-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .context-menu-separator {
