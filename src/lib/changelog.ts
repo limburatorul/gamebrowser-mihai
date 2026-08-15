@@ -6,6 +6,20 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.22.3',
+    changes: [
+      "Fix: the game list's scrollbar ran the full height of the window, starting behind the top bar and ending behind the bar at the bottom, so parts of it were neither visible nor grabbable. It now spans exactly the visible area and shortens by itself when the details bar appears.",
+      'As a side effect the game grid no longer scrolls underneath the top bar — covers now stop cleanly at its edge instead of sliding behind the blur.'
+    ]
+  },
+  {
+    version: '1.22.2',
+    changes: [
+      'Fix: some games launched an installer instead of the game — pressing Play could start the PhysX or DirectX setup, a Uplay/Ubisoft Connect installer, or an anti-cheat bootstrapper. On a 566-game library this affected 23 entries, and they were stuck that way: those filenames were not recognised as wrong, so the startup self-repair never re-checked them. They are now detected and repaired automatically the next time you start the app.',
+      'Games are also matched to their executable more reliably: punctuation and spacing are ignored when comparing (folder "Watch_Dogs2" holds WatchDogs2.exe), so the right file wins instead of whichever happens to be largest — which used to pick things like the benchmark tool for Far Cry 2.'
+    ]
+  },
+  {
     version: '1.22.1',
     changes: [
       'Fix: the most-played list in the sidebar ran underneath the bar at the bottom of the window, hiding its last entries and the total. It only started happening once importing Steam playtime made that list long enough to reach the bottom. Same fix the details panel got.'

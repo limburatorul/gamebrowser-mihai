@@ -692,14 +692,27 @@ select {
   flex-direction: column;
 }
 
+/* The clearance for the two absolutely-positioned bars is margin, not padding.
+   Padding sits inside the scroll box, so the box itself still spanned the full
+   window height and its scrollbar ran from behind the topbar down to behind
+   the details bar - visually starting and ending in places you can't see or
+   grab. Margin shrinks the box, so the scrollbar spans exactly the visible
+   area and shortens on its own when the details bar appears.
+
+   The tradeoff, deliberately accepted: content no longer scrolls underneath
+   the translucent topbar, so the glass blurs the backdrop rather than moving
+   cover art. The sidebar and details panel keep their padding approach, since
+   their content genuinely should pass behind the bar. */
 .game-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 68px 16px 16px;
+  margin-top: 68px;
+  padding: 0 16px 16px;
+  transition: margin-bottom 220ms ease;
 }
 
 .app.has-details .game-scroll {
-  padding-bottom: 140px;
+  margin-bottom: var(--details-bar-height);
 }
 
 .empty-state {

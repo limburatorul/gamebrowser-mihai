@@ -880,7 +880,25 @@ const IGNORED_EXE_PATTERNS = [
   /oalinst/i,
   /^dotnet/i,
   /prereq/i,
-  /^ue4?prereq/i
+  /^ue4?prereq/i,
+  // Added after finding 23 of 566 entries in a real library pointing at an
+  // installer instead of the game - pressing Play on Watch Dogs 2 launched
+  // the PhysX installer. The existing entries covered `setup*` and `install*`
+  // as *prefixes*, which misses every one of these. Matters twice over: an
+  // unrecognised name is also invisible to repairIgnoredExePaths(), so a game
+  // that landed on one of these was stuck there permanently.
+  /^physx/i, // PhysX-9.19.0218-SystemSoftware.exe, PhysX_9.10.0513_...
+  /websetup/i, // dxwebsetup.exe
+  /installer/i, // UplayInstaller, UbisoftConnectInstaller, EpicOnlineServicesInstaller
+  /^netfx/i, // netfx35_ia64.exe
+  /^dotnetfx/i,
+  /benchmark/i, // FC2BenchmarkTool.exe
+  /easyanticheat/i,
+  /^eac\.exe$/i, // anti-cheat bootstrapper sitting next to the real game exe
+  // A dedicated-server launcher is never the game itself. Deliberately narrow:
+  // plain "*Launcher.exe" is left alone, because for Tropico, Batman and
+  // several others the launcher genuinely is the right entry point.
+  /serverlauncher/i
 ]
 const IGNORED_DIR_PATTERNS = [/redist/i, /^__installer$/i, /^\$recycle\.bin$/i]
 
@@ -938,11 +956,31 @@ async function findBestExe(folder: string): Promise<string | null> {
   // game still gets a launchable entry.
   const preferred = results.filter((r) => !r.ignoredName)
   const pool = preferred.length > 0 ? preferred : results
-  const folderName = basename(folder).toLowerCase()
+  // Compare names with punctuation and spacing stripped rather than requiring
+  // an exact match. Real installs almost never line up character for character:
+  // folder "Watch_Dogs2" holds WatchDogs2.exe, folder "Far Cry 2" holds
+  // FarCry2.exe. Exact equality missed both, so the tie-break fell through to
+  // "biggest file", which picked EAC.exe and FC2BenchmarkTool.exe instead.
+  const normalize = (s: string): string => s.replace(/[^a-z0-9]/gi, '').toLowerCase()
+  const folderKey = normalize(basename(folder))
+  const score = (file: string): number => {
+    const name = normalize(basename(file, '.exe'))
+    if (!name || !folderKey) return 0
+    if (name === folderKey) return 3
+    // One containing the other covers "WatchDogs2.exe" in "Watch Dogs 2 v1.17
+    // ALL DLCs" and the reverse, where a repack folder carries version noise.
+    if (folderKey.includes(name) || name.includes(folderKey)) return 2
+    // Shared opening run, for sequels that abbreviate: folder "Cities Skylines
+    // II ..." holds Cities2.exe. Without this the tie-break falls through to
+    // file size, and a small Unity launcher stub loses to a 7MB helper sitting
+    // in a subfolder. Four characters is enough to stop coincidental hits.
+    let common = 0
+    while (common < name.length && common < folderKey.length && name[common] === folderKey[common]) common++
+    return common >= 4 ? 1 : 0
+  }
   pool.sort((a, b) => {
-    const aMatch = basename(a.file, '.exe').toLowerCase() === folderName ? 1 : 0
-    const bMatch = basename(b.file, '.exe').toLowerCase() === folderName ? 1 : 0
-    if (aMatch !== bMatch) return bMatch - aMatch
+    const diff = score(b.file) - score(a.file)
+    if (diff !== 0) return diff
     return b.size - a.size
   })
   return pool[0].file
