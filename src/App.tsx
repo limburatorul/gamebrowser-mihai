@@ -155,6 +155,14 @@ export default function App(): JSX.Element {
     return () => clearTimeout(timer)
   }, [])
 
+  // The window title comes from the page's <title>, so the version has to be
+  // stamped in from here - win.setTitle() in main would just get overwritten.
+  useEffect(() => {
+    window.api.getAppInfo().then((info) => {
+      document.title = `Game Browser ${info.version}`
+    })
+  }, [])
+
   useEffect(() => {
     window.api.getAppInfo().then((info) => {
       const lastSeen = localStorage.getItem(LAST_SEEN_VERSION_KEY)
@@ -212,7 +220,15 @@ export default function App(): JSX.Element {
     return [...set].sort((a, b) => a.localeCompare(b))
   }, [games])
 
-  const totalPlaytimeSeconds = useMemo(() => games.reduce((sum, g) => sum + g.playtimeSeconds, 0), [games])
+  // Games flagged "ignore playtime" keep their recorded seconds but are left
+  // out of every aggregate - the library total here, the most-played list
+  // below, and the dashboard's totals and breakdowns.
+  const countedForPlaytime = useMemo(() => games.filter((g) => !g.excludeFromPlaytime), [games])
+
+  const totalPlaytimeSeconds = useMemo(
+    () => countedForPlaytime.reduce((sum, g) => sum + g.playtimeSeconds, 0),
+    [countedForPlaytime]
+  )
 
   const backdropCoverPaths = useMemo(
     () => games.map((g) => g.coverPath).filter((p): p is string => Boolean(p)),
@@ -221,11 +237,11 @@ export default function App(): JSX.Element {
 
   const playtimeEntries = useMemo(
     () =>
-      games
+      countedForPlaytime
         .filter((g) => g.playtimeSeconds >= 60)
         .sort((a, b) => b.playtimeSeconds - a.playtimeSeconds)
         .map((g) => ({ id: g.id, name: g.name, playtimeSeconds: g.playtimeSeconds })),
-    [games]
+    [countedForPlaytime]
   )
 
   const visibleGames = useMemo(() => {
@@ -629,6 +645,12 @@ export default function App(): JSX.Element {
     void window.api.update(id, { favorite: !game.favorite })
   }
 
+  function handleTogglePlaytimeIgnored(id: string): void {
+    const game = games.find((g) => g.id === id)
+    if (!game) return
+    void window.api.update(id, { excludeFromPlaytime: !game.excludeFromPlaytime })
+  }
+
   function handleRateGame(id: string, rating: number | null): void {
     void window.api.update(id, { rating })
   }
@@ -790,6 +812,8 @@ export default function App(): JSX.Element {
           '--topbar-blur': `${uiPrefs.topBarBlur}px`,
           '--details-alpha': String(uiPrefs.detailsBarOpacity),
           '--details-blur': `${uiPrefs.detailsBarBlur}px`,
+          '--tile-highlight-alpha': String(uiPrefs.tileHighlightOpacity),
+          '--tile-highlight-blur': `${uiPrefs.tileHighlightBlur}px`,
           '--accent': uiPrefs.accentColor,
           '--accent-dim': mixHex(uiPrefs.accentColor, '#10131a', 0.45),
           '--accent-light': mixHex(uiPrefs.accentColor, '#ffffff', 0.22),
@@ -930,6 +954,7 @@ export default function App(): JSX.Element {
               onClose={() => setContextMenu(null)}
               onLaunch={handleLaunch}
               onToggleFavorite={handleToggleFavorite}
+              onTogglePlaytimeIgnored={handleTogglePlaytimeIgnored}
               onEdit={handleEdit}
               onSetCover={handleSetCover}
               onRemove={handleRemove}

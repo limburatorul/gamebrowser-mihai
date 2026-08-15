@@ -66,19 +66,28 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
       .map(([genre, count]) => ({ label: genre, value: count, display: String(count) }))
   }, [games])
 
+  // Only the playtime-based stats honour the "ignore playtime" flag - the
+  // count breakdowns above still cover the whole library, since a game being
+  // excluded from playtime doesn't make it stop existing.
+  const countedForPlaytime = useMemo(() => games.filter((g) => !g.excludeFromPlaytime), [games])
+
   const genresByPlaytime = useMemo<BarRow[]>(() => {
     const totals = new Map<string, number>()
-    for (const g of games) for (const genre of g.genres) totals.set(genre, (totals.get(genre) ?? 0) + g.playtimeSeconds)
+    for (const g of countedForPlaytime)
+      for (const genre of g.genres) totals.set(genre, (totals.get(genre) ?? 0) + g.playtimeSeconds)
     return [...totals.entries()]
       .filter(([, secs]) => secs > 0)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
       .map(([genre, secs]) => ({ label: genre, value: secs, display: formatPlaytime(secs) }))
-  }, [games])
+  }, [countedForPlaytime])
 
-  const totalPlaytimeSeconds = useMemo(() => games.reduce((sum, g) => sum + g.playtimeSeconds, 0), [games])
+  const totalPlaytimeSeconds = useMemo(
+    () => countedForPlaytime.reduce((sum, g) => sum + g.playtimeSeconds, 0),
+    [countedForPlaytime]
+  )
   const withCover = games.filter((g) => g.coverPath).length
-  const played = games.filter((g) => g.playtimeSeconds > 0).length
+  const played = countedForPlaytime.filter((g) => g.playtimeSeconds > 0).length
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>

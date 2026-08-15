@@ -6,3 +6,7 @@ dist-electron
 /Game Browser/
 Backup/
 *.zip
+*.exe
+# Scratch folder of generated icon-design candidates. The icon actually
+# shipped is build/icon.ico.
+/icons/

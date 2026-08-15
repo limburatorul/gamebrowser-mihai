@@ -200,6 +200,36 @@ export default function SettingsDialog({
               <span className="settings-slider-value">{uiPrefs.detailsBarBlur}px</span>
             </div>
 
+            <div className="settings-slider-row">
+              <span className="settings-slider-label">Card highlight — transparency</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={Math.round(uiPrefs.tileHighlightOpacity * 100)}
+                onChange={(e) => setPref('tileHighlightOpacity', Number(e.target.value) / 100)}
+              />
+              <span className="settings-slider-value">{Math.round(uiPrefs.tileHighlightOpacity * 100)}%</span>
+            </div>
+
+            <div className="settings-slider-row">
+              <span className="settings-slider-label">Card highlight — blur</span>
+              <input
+                type="range"
+                min={0}
+                max={30}
+                step={1}
+                value={uiPrefs.tileHighlightBlur}
+                onChange={(e) => setPref('tileHighlightBlur', Number(e.target.value))}
+              />
+              <span className="settings-slider-value">{uiPrefs.tileHighlightBlur}px</span>
+            </div>
+
+            <p className="settings-note">
+              The card highlight is the frame behind a game card when it is hovered or selected.
+            </p>
+
             <p className="settings-note">Appearance changes apply instantly and are saved automatically.</p>
 
             <h3 className="settings-section">Rotating Backdrop</h3>

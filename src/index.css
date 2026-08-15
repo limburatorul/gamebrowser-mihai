@@ -12,6 +12,9 @@
   --accent-light: #7aabf8;
   --accent-lighter: #a3c5fa;
   --accent-rgb: 76, 139, 245;
+  /* Height of the bottom details bar. It's position:absolute, so anything
+     sharing that space (.details-panel) needs this to clear it. */
+  --details-bar-height: 115px;
   --danger: #e5484d;
   --success: #3ddc84;
   --radius: 6px;
@@ -129,6 +132,17 @@ select {
   outline: none;
 }
 
+/* A <select> sizes itself to its widest option, so the genre/tag filters grew
+   with whatever the longest genre or user tag happened to be - which made the
+   topbar's minimum width unbounded (measured: 1538px window with two 199px
+   selects, i.e. past the 1500px minWidth). Capping them pins that minimum at
+   ~1460px no matter how long the names get; the open dropdown still lists
+   every option in full. */
+.topbar-controls .select {
+  max-width: 160px;
+  text-overflow: ellipsis;
+}
+
 .view-toggle {
   display: flex;
   border: 1px solid var(--border);
@@ -207,7 +221,18 @@ select {
      position:absolute (removed from .app's flex flow), so every sibling
      of .body needs its own clearance or its content starts underneath it. */
   padding: 68px 16px 16px;
-  transition: width 220ms ease, padding 220ms ease;
+  transition: width 220ms ease, padding 220ms ease, margin-bottom 220ms ease;
+}
+
+/* The bottom details bar is position:absolute over .body, so - exactly like
+   .game-scroll's own padding-bottom - the panel has to be told to stop above
+   it, or its last content (typically the final screenshots) sits underneath
+   the bar with no way to scroll it clear. --details-bar-height is the bar's
+   real box: the 90px cover, its 12px padding top and bottom, and the 1px top
+   border. Keep the two in step if .details-cover or .details-bar's padding
+   ever changes. */
+.app.has-details .details-panel {
+  margin-bottom: var(--details-bar-height);
 }
 
 /* Animating width (not transform) so the game grid actually reflows/shrinks
@@ -652,17 +677,27 @@ select {
 .game-tile {
   cursor: pointer;
   border-radius: var(--radius);
-  padding: 4px;
+  /* Wider on the left/right than top/bottom on purpose - the highlight reads
+     as a frame around the cover, and it looks too thin at an even 4px. The
+     tile is border-box with a fixed inline width, so this eats into the cover
+     rather than widening the tile; row height in GameGrid is unaffected. */
+  padding: 4px 9px;
   border: 2px solid transparent;
 }
 
-.game-tile:hover {
-  background: var(--bg-2);
+/* Glass instead of the old flat --bg-2 fill: same treatment as the topbar and
+   details bar, tunable from Settings > Appearance. The literal rgb() is
+   --bg-2 (#1e2024) spelled out, since a hex custom property can't be fed to
+   rgba() without a separate --*-rgb var. */
+.game-tile:hover,
+.game-tile.selected {
+  background: rgba(30, 32, 36, var(--tile-highlight-alpha, 0.55));
+  backdrop-filter: blur(var(--tile-highlight-blur, 16px)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--tile-highlight-blur, 16px)) saturate(1.2);
 }
 
 .game-tile.selected {
   border-color: var(--accent);
-  background: var(--bg-2);
 }
 
 .game-tile-cover {
@@ -802,12 +837,15 @@ select {
   border: 1px solid transparent;
 }
 
-.list-row:hover {
-  background: var(--bg-2);
+/* Same glass highlight as the grid tiles, so the two view modes match. */
+.list-row:hover,
+.list-row.selected {
+  background: rgba(30, 32, 36, var(--tile-highlight-alpha, 0.55));
+  backdrop-filter: blur(var(--tile-highlight-blur, 16px)) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--tile-highlight-blur, 16px)) saturate(1.2);
 }
 
 .list-row.selected {
-  background: var(--bg-2);
   border-color: var(--accent);
 }
 
@@ -1744,9 +1782,22 @@ select {
   margin: 4px 6px;
 }
 
-/* Scrollbar */
+/* Scrollbars. The old 10px bar with a --bg-3 thumb was both chunky and nearly
+   invisible - --bg-3 sits a hair above --bg-2, so the thumb blended into every
+   panel it appeared in, and its :hover colour (--border) was barely a shade
+   different. The track stays 10px wide for a comfortable grab target, but a
+   2px transparent border plus background-clip means the *visible* thumb is
+   only 6px. Translucent white rather than a fixed palette colour, so it reads
+   the same over the sidebar, the glass panels and the rotating backdrop
+   instead of being tuned for one of them.
+
+   Deliberately not using the standard `scrollbar-width`/`scrollbar-color`:
+   Chromium ignores these ::-webkit rules entirely once `scrollbar-width` is
+   set, and the standard properties can't do the rounded inset thumb. This is
+   an Electron app, so the vendor pseudo-elements are always available. */
 ::-webkit-scrollbar {
   width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -1754,10 +1805,22 @@ select {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-3);
-  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.16);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--border);
+  background: rgba(255, 255, 255, 0.3);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: rgba(255, 255, 255, 0.42);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }

@@ -14,6 +14,10 @@ export interface Game {
   tags: string[]
   rating: number | null
   categoryIds: string[]
+  // Keeps counting playtime, but leaves the game out of every aggregate:
+  // the sidebar's most-played list, the library total, and the dashboard.
+  // Toggling it back off restores the untouched number.
+  excludeFromPlaytime: boolean
   steamAppId: number | null
   epicAppName: string | null
   gogProductId: string | null
@@ -152,7 +156,12 @@ export interface GameApi {
   launch(id: string): Promise<void>
   update(
     id: string,
-    patch: Partial<Pick<Game, 'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds' | 'steamAppId'>>
+    patch: Partial<
+      Pick<
+        Game,
+        'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds' | 'steamAppId' | 'excludeFromPlaytime'
+      >
+    >
   ): Promise<Game | null>
   setCover(id: string): Promise<Game | null>
   setExePath(id: string): Promise<Game | null>

@@ -65,6 +65,8 @@ const screenshotsDir = join(userDataPath, 'screenshots')
 const settingsFile = join(userDataPath, 'settings.json')
 const categoriesFile = join(userDataPath, 'categories.json')
 
+// This fork's self-updater points at its own repo, so it only ever sees
+// releases published there - never the main repo's.
 const UPDATE_REPO = 'limburatorul/gamebrowser-mihai'
 
 let games: Game[] = []
@@ -90,6 +92,7 @@ async function loadLibrary(): Promise<void> {
       tags: g.tags ?? [],
       rating: g.rating ?? null,
       categoryIds: g.categoryIds ?? [],
+      excludeFromPlaytime: g.excludeFromPlaytime ?? false,
       steamAppId: g.steamAppId ?? null,
       epicAppName: g.epicAppName ?? null,
       gogProductId: g.gogProductId ?? null,
@@ -999,6 +1002,7 @@ async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]
       tags: [],
       rating: null,
       categoryIds: [],
+      excludeFromPlaytime: false,
       steamAppId: g.appId,
       epicAppName: null,
       gogProductId: null,
@@ -1050,6 +1054,7 @@ async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
       tags: [],
       rating: null,
       categoryIds: [],
+      excludeFromPlaytime: false,
       steamAppId: null,
       epicAppName: m.appName,
       gogProductId: null,
@@ -1087,6 +1092,7 @@ async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
       tags: [],
       rating: null,
       categoryIds: [],
+      excludeFromPlaytime: false,
       steamAppId: null,
       epicAppName: null,
       gogProductId: g.productId,
@@ -1164,6 +1170,7 @@ async function addNewUbisoftGames(installed: InstalledUbisoftGame[]): Promise<Ga
       tags: [],
       rating: null,
       categoryIds: [],
+      excludeFromPlaytime: false,
       steamAppId: null,
       epicAppName: null,
       gogProductId: null,
@@ -1483,6 +1490,7 @@ function registerIpcHandlers(): void {
       tags: [],
       rating: null,
       categoryIds: [],
+      excludeFromPlaytime: false,
       steamAppId: null,
       epicAppName: null,
       gogProductId: null,
@@ -1548,6 +1556,7 @@ function registerIpcHandlers(): void {
         tags: [],
         rating: null,
         categoryIds: [],
+        excludeFromPlaytime: false,
         steamAppId: null,
         epicAppName: null,
         gogProductId: null,
@@ -1651,7 +1660,12 @@ function registerIpcHandlers(): void {
     async (
       _e,
       id: string,
-      patch: Partial<Pick<Game, 'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds' | 'steamAppId'>>
+      patch: Partial<
+        Pick<
+          Game,
+          'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds' | 'steamAppId' | 'excludeFromPlaytime'
+        >
+      >
     ) => {
       const game = games.find((g) => g.id === id)
       if (!game) return null
@@ -2001,12 +2015,14 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1920,
     height: 1080,
-    // Lowered now that the four separate "Import X" buttons collapsed into
-    // one "Import ▾" dropdown, freeing up most of the width the previous
-    // bump accounted for - so the window fits on 1080p monitors again.
-    // Still an estimate, not a live CDP measurement (no way to do that in
-    // this session) - re-measure with getBoundingClientRect if the toolbar
-    // still looks cut off.
+    // Measured live over CDP, not estimated: shrinking the viewport until
+    // anything in the topbar clips puts the real floor at 1444px of viewport
+    // (1460px of window, +16px chrome) in the worst case - both the genre and
+    // the tag filter visible, each capped at 160px by `.topbar-controls
+    // .select` in index.css. 1500 leaves ~40px of headroom over that.
+    // Re-measure the same way whenever the TopBar gains or loses a control,
+    // and keep that select cap - without it this floor grows with the longest
+    // genre/tag name and no fixed number here can be right.
     minWidth: 1500,
     minHeight: 640,
     show: false,

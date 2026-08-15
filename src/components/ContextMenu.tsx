@@ -9,6 +9,7 @@ interface Props {
   onClose: () => void
   onLaunch: (id: string) => void
   onToggleFavorite: (id: string) => void
+  onTogglePlaytimeIgnored: (id: string) => void
   onEdit: (id: string) => void
   onSetCover: (id: string) => void
   onRemove: (id: string) => void
@@ -26,6 +27,7 @@ export default function ContextMenu({
   onClose,
   onLaunch,
   onToggleFavorite,
+  onTogglePlaytimeIgnored,
   onEdit,
   onSetCover,
   onRemove,
@@ -74,6 +76,13 @@ export default function ContextMenu({
         </button>
         <button className="context-menu-item" onClick={() => run(onToggleFavorite)}>
           {game.favorite ? '★ Remove Favorite' : '☆ Favorite'}
+        </button>
+        <button
+          className="context-menu-item"
+          title="Keeps tracking this game's playtime, but leaves it out of the most-played list, the library total, and the dashboard"
+          onClick={() => run(onTogglePlaytimeIgnored)}
+        >
+          {game.excludeFromPlaytime ? '⏱ Count Playtime' : '⏱ Ignore Playtime'}
         </button>
         <button className="context-menu-item" onClick={() => run(onSetCover)}>
           Set Cover
