@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Game, ViewMode } from '@shared/types'
 import CoverImage from './CoverImage'
-import { formatPlaytime } from '../lib/localFile'
+import { formatPlaytime, formatSize } from '../lib/localFile'
 
 interface Props {
   games: Game[]
@@ -14,6 +14,11 @@ interface Props {
   onItemContextMenu: (id: string, event: React.MouseEvent) => void
   onBackgroundClick: () => void
   onLaunch: (id: string) => void
+  /** Keyboard cursor. Reported upward so App can move it, and watched here so
+      the virtualiser scrolls it into view - rows that aren't rendered have no
+      DOM node to scrollIntoView. */
+  activeId: string | null
+  onColumnsChange: (columns: number) => void
 }
 
 const GRID_GAP = 16
@@ -32,7 +37,9 @@ export default function GameGrid({
   onItemClick,
   onItemContextMenu,
   onBackgroundClick,
-  onLaunch
+  onLaunch,
+  activeId,
+  onColumnsChange
 }: Props): JSX.Element {
   const parentRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -61,6 +68,21 @@ export default function GameGrid({
   })
 
   const virtualRows = rowVirtualizer.getVirtualItems()
+
+  // App needs the column count to move the cursor up/down by a whole row.
+  useEffect(() => {
+    onColumnsChange(columns)
+  }, [columns, onColumnsChange])
+
+  useEffect(() => {
+    if (!activeId) return
+    const index = games.findIndex((g) => g.id === activeId)
+    if (index === -1) return
+    rowVirtualizer.scrollToIndex(viewMode === 'grid' ? Math.floor(index / columns) : index, { align: 'auto' })
+    // rowVirtualizer is stable enough here; re-running on every render would
+    // fight the user's own scrolling.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, games, columns, viewMode])
 
   const emptyState = games.length === 0
 
@@ -157,7 +179,16 @@ function GameTile({
       <div className="game-tile-cover" style={{ height: Math.round(tileWidth * 1.4) }}>
         <CoverImage game={game} className="cover-img" />
         {running && <div className="running-badge">RUNNING</div>}
-        {game.favorite && <div className="favorite-badge">★</div>}
+        {/* Grouped so the size pill and the favourite star can share the top
+            right corner without one needing to know the other's width. */}
+        <div className="tile-badges-top">
+          {game.favorite && <span className="favorite-badge">★</span>}
+          {game.installSizeBytes !== null && (
+            <span className="size-badge" title="Size on disk">
+              {formatSize(game.installSizeBytes)}
+            </span>
+          )}
+        </div>
         {game.rating !== null && <div className="rating-badge">★ {game.rating}</div>}
         {!running && (
           <button

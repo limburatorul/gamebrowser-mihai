@@ -18,6 +18,11 @@ export interface Game {
   // the sidebar's most-played list, the library total, and the dashboard.
   // Toggling it back off restores the untouched number.
   excludeFromPlaytime: boolean
+  // Size of installDir on disk. Filled in by a background sweep rather than at
+  // import time - walking a game folder takes about a second, which is far too
+  // slow to do inline while importing hundreds of them.
+  installSizeBytes: number | null
+  sizeMeasuredAt: string | null
   steamAppId: number | null
   epicAppName: string | null
   gogProductId: string | null
@@ -41,7 +46,7 @@ export interface ScanProgress {
   currentName: string
 }
 
-export type SortKey = 'name' | 'dateAdded' | 'lastPlayed' | 'playtime' | 'rating'
+export type SortKey = 'name' | 'dateAdded' | 'lastPlayed' | 'playtime' | 'rating' | 'size'
 export type ViewMode = 'grid' | 'list'
 
 export interface CoverFetchResult {
@@ -120,6 +125,17 @@ export interface ScreenshotSweepResult {
   noMatch: number
   rateLimited: boolean
   retryAfter: string | null
+}
+
+export interface DiskSizeSweepResult {
+  totalGames: number
+  measuredBefore: number
+  measured: number
+  failed: number
+  totalSizeBytes: number
+  /** True when a sweep was already in flight, so this call did nothing. */
+  alreadyRunning: boolean
+  error?: string
 }
 
 export interface MetadataSweepResult {
@@ -228,6 +244,8 @@ export interface GameApi {
   sweepScreenshotsNow(): Promise<ScreenshotSweepResult>
   syncSteamPlaytimeNow(): Promise<SteamPlaytimeSyncResult>
   sweepMetadataNow(): Promise<MetadataSweepResult>
+  measureDiskSizesNow(): Promise<DiskSizeSweepResult>
+  onDiskSizeProgress(cb: (progress: ScanProgress | null) => void): () => void
   getCategories(): Promise<Category[]>
   createCategory(name: string): Promise<Category>
   renameCategory(id: string, name: string): Promise<Category | null>

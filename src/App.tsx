@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   BackupPrefs,
   Category,
@@ -11,7 +11,7 @@ import type {
   UpdateCheckResult,
   ViewMode
 } from '@shared/types'
-import { formatPlaytime } from './lib/localFile'
+import { formatPlaytime, formatSize } from './lib/localFile'
 import Sidebar, { type LibraryFilter } from './components/Sidebar'
 import TopBar from './components/TopBar'
 import GameGrid from './components/GameGrid'
@@ -95,6 +95,15 @@ export default function App(): JSX.Element {
   const [sweepingScreenshots, setSweepingScreenshots] = useState(false)
   const [syncingPlaytime, setSyncingPlaytime] = useState(false)
   const [sweepingMetadata, setSweepingMetadata] = useState(false)
+  const [measuringSizes, setMeasuringSizes] = useState(false)
+  const [diskSizeProgress, setDiskSizeProgress] = useState<ScanProgress | null>(null)
+  // Column count comes back from the grid, which is the only place that knows
+  // how many tiles fit. Needed so Up/Down move by a whole row.
+  const [columns, setColumns] = useState(1)
+  // The keyboard handler reads the current list through a ref so the window
+  // listener isn't torn down and re-attached on every keystroke in the search
+  // box, which is what happens if the list itself is a dependency.
+  const visibleGamesRef = useRef<Game[]>([])
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [whatsNew, setWhatsNew] = useState<{ title: string; entries: ChangelogEntry[] } | null>(null)
@@ -139,7 +148,9 @@ export default function App(): JSX.Element {
     const offScanProgress = window.api.onScanProgress(setScanProgress)
     const offCoverFetchProgress = window.api.onCoverFetchProgress(setCoverFetchProgress)
     const offBackupProgress = window.api.onBackupProgress(setBackupProgress)
+    const offDiskSizeProgress = window.api.onDiskSizeProgress(setDiskSizeProgress)
     return () => {
+      offDiskSizeProgress()
       offLibrary()
       offLibrarySynced()
       offCategories()
@@ -202,18 +213,57 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
-      if (e.key !== 'Escape') return
-      if (contextMenu) {
-        setContextMenu(null)
+      if (e.key === 'Escape') {
+        if (contextMenu) {
+          setContextMenu(null)
+          return
+        }
+        if (!anyModalOpen) setSelectedIds(new Set())
         return
       }
-      if (!anyModalOpen) {
-        setSelectedIds(new Set())
+
+      if (anyModalOpen || contextMenu) return
+      // Never steal keys from a text field - the search box, the category
+      // rename input, anything in a dialog.
+      const el = document.activeElement
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return
+
+      const list = visibleGamesRef.current
+      if (list.length === 0) return
+
+      const step =
+        e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowDown' ? columns : e.key === 'ArrowUp' ? -columns : null
+
+      if (step !== null) {
+        e.preventDefault()
+        const current = anchorId ? list.findIndex((g) => g.id === anchorId) : -1
+        // Nothing selected yet: the first key press lands on the first game
+        // rather than jumping into the middle of the list.
+        const next = current === -1 ? 0 : Math.min(list.length - 1, Math.max(0, current + step))
+        const target = list[next]
+        if (target) {
+          setSelectedIds(new Set([target.id]))
+          setAnchorId(target.id)
+        }
+        return
+      }
+
+      if (e.key === 'Home' || e.key === 'End') {
+        e.preventDefault()
+        const target = e.key === 'Home' ? list[0] : list[list.length - 1]
+        setSelectedIds(new Set([target.id]))
+        setAnchorId(target.id)
+        return
+      }
+
+      if (e.key === 'Enter' && anchorId) {
+        e.preventDefault()
+        handleLaunch(anchorId)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [contextMenu, anyModalOpen])
+  }, [contextMenu, anyModalOpen, anchorId, columns])
 
   const availableGenres = useMemo(() => {
     const set = new Set<string>()
@@ -255,6 +305,7 @@ export default function App(): JSX.Element {
     let list = games
     if (filter === 'favorites') list = list.filter((g) => g.favorite)
     if (filter === 'recent') list = list.filter((g) => g.lastPlayed)
+    if (filter === 'never-played') list = list.filter((g) => g.playtimeSeconds === 0)
     if (filter === 'no-cover') list = list.filter((g) => !g.coverPath)
     if (filter === 'steam') list = list.filter((g) => g.source === 'steam')
     if (filter === 'epic') list = list.filter((g) => g.source === 'epic')
@@ -283,12 +334,22 @@ export default function App(): JSX.Element {
           return b.playtimeSeconds - a.playtimeSeconds
         case 'rating':
           return (b.rating ?? -1) - (a.rating ?? -1)
+        case 'size':
+          // Unmeasured games sort last rather than as zero, so a partly
+          // measured library doesn't look like it's full of empty folders.
+          return (b.installSizeBytes ?? -1) - (a.installSizeBytes ?? -1)
         default:
           return 0
       }
     })
     return sorted
   }, [games, filter, genreFilter, tagFilter, search, sortKey])
+
+  useEffect(() => {
+    visibleGamesRef.current = visibleGames
+  }, [visibleGames])
+
+  const handleColumnsChange = useCallback((n: number) => setColumns(n), [])
 
   const selectedGame = useMemo(() => {
     if (selectedIds.size !== 1) return null
@@ -508,6 +569,26 @@ export default function App(): JSX.Element {
       setInfoMessage({ title: 'Covers & Genres', message: lines.join(' ') })
     } finally {
       setSweepingMetadata(false)
+    }
+  }
+
+  async function handleMeasureDiskSizes(): Promise<void> {
+    setMeasuringSizes(true)
+    try {
+      const r = await window.api.measureDiskSizesNow()
+      if (r.alreadyRunning) {
+        setInfoMessage({ title: 'Size on Disk', message: 'Already measuring — it runs in the background.' })
+        return
+      }
+      if (r.error) {
+        setInfoMessage({ title: 'Size on Disk', message: `Something went wrong: ${r.error}` })
+        return
+      }
+      const lines = [`Measured ${r.measured} of ${r.totalGames} games — ${formatSize(r.totalSizeBytes)} in total.`]
+      if (r.failed > 0) lines.push(`${r.failed} install folders could not be read.`)
+      setInfoMessage({ title: 'Size on Disk', message: lines.join(' ') })
+    } finally {
+      setMeasuringSizes(false)
     }
   }
 
@@ -934,6 +1015,7 @@ export default function App(): JSX.Element {
           onFilterChange={setFilter}
           totalCount={games.length}
           favoriteCount={games.filter((g) => g.favorite).length}
+          neverPlayedCount={games.filter((g) => g.playtimeSeconds === 0).length}
           noCoverCount={games.filter((g) => !g.coverPath).length}
           steamCount={games.filter((g) => g.source === 'steam').length}
           epicCount={games.filter((g) => g.source === 'epic').length}
@@ -964,6 +1046,8 @@ export default function App(): JSX.Element {
             onItemContextMenu={handleItemContextMenu}
             onBackgroundClick={handleBackgroundClick}
             onLaunch={handleLaunch}
+            activeId={anchorId}
+            onColumnsChange={handleColumnsChange}
           />
         </main>
         {detailsPanelMounted && (
@@ -1064,6 +1148,9 @@ export default function App(): JSX.Element {
           syncingPlaytime={syncingPlaytime}
           onSweepMetadataNow={handleSweepMetadataNow}
           sweepingMetadata={sweepingMetadata}
+          onMeasureDiskSizes={handleMeasureDiskSizes}
+          measuringSizes={measuringSizes}
+          diskSizeProgress={diskSizeProgress}
         />
       )}
       {aboutOpen && (

@@ -1,7 +1,7 @@
 import type { Game } from '@shared/types'
 import CoverImage from './CoverImage'
 import StarRating from './StarRating'
-import { formatDate, formatPlaytime } from '../lib/localFile'
+import { formatDate, formatPlaytime, formatSize } from '../lib/localFile'
 
 interface Props {
   game: Game
@@ -43,6 +43,7 @@ export default function GameDetails({
           <span>Playtime: {formatPlaytime(game.playtimeSeconds)}</span>
           <span>Last played: {formatDate(game.lastPlayed)}</span>
           <span>Added: {formatDate(game.dateAdded)}</span>
+          {game.installSizeBytes !== null && <span>Size: {formatSize(game.installSizeBytes)}</span>}
           <StarRating value={game.rating} onChange={(r) => onRate(game.id, r)} size="lg" />
         </div>
       </div>

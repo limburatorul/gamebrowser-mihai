@@ -24,6 +24,9 @@ interface Props {
   syncingPlaytime: boolean
   onSweepMetadataNow: () => Promise<void>
   sweepingMetadata: boolean
+  onMeasureDiskSizes: () => Promise<void>
+  measuringSizes: boolean
+  diskSizeProgress: ScanProgress | null
 }
 
 type Tab = 'appearance' | 'backup' | 'automation'
@@ -67,7 +70,10 @@ export default function SettingsDialog({
   onSyncSteamPlaytime,
   syncingPlaytime,
   onSweepMetadataNow,
-  sweepingMetadata
+  sweepingMetadata,
+  onMeasureDiskSizes,
+  measuringSizes,
+  diskSizeProgress
 }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('appearance')
   const [clientId, setClientId] = useState(initial.igdbClientId)
@@ -465,6 +471,23 @@ export default function SettingsDialog({
             </p>
             <button className="btn" type="button" disabled={sweepingMetadata} onClick={() => void onSweepMetadataNow()}>
               {sweepingMetadata ? 'Checking…' : 'Check Now'}
+            </button>
+
+            <h3 className="settings-section">Size on Disk</h3>
+            <p className="settings-note">
+              How much space each game takes is measured in the background and kept up to date weekly, which is what
+              makes sorting by size and the Dashboard&apos;s &quot;biggest never played&quot; list work. Walking a
+              game folder takes about a second, so a first pass over a large library is slow — it is paced to stay out
+              of the way and only runs once per game.
+            </p>
+            {diskSizeProgress && (
+              <p className="settings-note backup-progress">
+                Measuring… {diskSizeProgress.current.toLocaleString()} / {diskSizeProgress.total.toLocaleString()}
+                {diskSizeProgress.currentName ? ` — ${diskSizeProgress.currentName}` : ''}
+              </p>
+            )}
+            <button className="btn" type="button" disabled={measuringSizes} onClick={() => void onMeasureDiskSizes()}>
+              {measuringSizes ? 'Measuring…' : 'Re-measure All'}
             </button>
 
             <h3 className="settings-section">Steam Playtime</h3>

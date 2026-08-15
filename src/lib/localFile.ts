@@ -30,6 +30,14 @@ export function formatPlaytime(seconds: number): string {
   return `${hours.toFixed(1)} h`
 }
 
+export function formatSize(bytes: number | null): string {
+  if (bytes === null) return 'Not measured'
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MB`
+  const gb = bytes / (1024 * 1024 * 1024)
+  return `${gb < 10 ? gb.toFixed(1) : Math.round(gb)} GB`
+}
+
 export function formatDate(iso: string | null): string {
   if (!iso) return 'Never'
   const d = new Date(iso)

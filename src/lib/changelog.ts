@@ -6,6 +6,16 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.23.0',
+    changes: [
+      'New: how much space each game takes is now shown in the corner of its cover, and you can sort the library by it. The Dashboard adds the total on disk and — the useful part — the biggest games you have never played.',
+      'New: a "Never Played" filter in the sidebar.',
+      'New: keyboard navigation in the grid — arrow keys move between games, Enter launches, Home and End jump to the ends. Typing in the search box is left alone.',
+      "Fix: Steam games that are not actually installed no longer appear in your library. Steam keeps a record for anything it knows about locally, and that was being read as \"installed\" — which is why things you never installed showed up with playtime.",
+      'Fix: games that share an install folder no longer produce a separate entry each. Half-Life 2, Lost Coast and both episodes all live in the same folder and were appearing four times, every one of them pointing at the same file.'
+    ]
+  },
+  {
     version: '1.22.3',
     changes: [
       "Fix: the game list's scrollbar ran the full height of the window, starting behind the top bar and ending behind the bar at the bottom, so parts of it were neither visible nor grabbable. It now spans exactly the visible area and shortens by itself when the details bar appears.",

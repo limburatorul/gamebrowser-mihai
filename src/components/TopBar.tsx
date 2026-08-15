@@ -151,6 +151,7 @@ export default function TopBar({
           <option value="lastPlayed">Last Played</option>
           <option value="playtime">Playtime</option>
           <option value="rating">Rating</option>
+          <option value="size">Size on Disk</option>
         </select>
 
         {genres.length > 0 && (

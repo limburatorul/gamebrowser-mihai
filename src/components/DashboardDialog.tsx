@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { Game } from '@shared/types'
-import { formatPlaytime } from '../lib/localFile'
+import { formatPlaytime, formatSize } from '../lib/localFile'
 
 interface Props {
   games: Game[]
@@ -82,6 +82,34 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
       .map(([genre, secs]) => ({ label: genre, value: secs, display: formatPlaytime(secs) }))
   }, [countedForPlaytime])
 
+  const measured = useMemo(() => games.filter((g) => g.installSizeBytes !== null), [games])
+  const totalSizeBytes = useMemo(() => measured.reduce((sum, g) => sum + (g.installSizeBytes ?? 0), 0), [measured])
+
+  const biggestGames = useMemo<BarRow[]>(
+    () =>
+      [...measured]
+        .sort((a, b) => (b.installSizeBytes ?? 0) - (a.installSizeBytes ?? 0))
+        .slice(0, 6)
+        .map((g) => ({ label: g.name, value: g.installSizeBytes ?? 0, display: formatSize(g.installSizeBytes) })),
+    [measured]
+  )
+
+  // The point of measuring sizes at all: disk taken up by things never played.
+  const biggestUnplayed = useMemo<BarRow[]>(
+    () =>
+      measured
+        .filter((g) => g.playtimeSeconds === 0)
+        .sort((a, b) => (b.installSizeBytes ?? 0) - (a.installSizeBytes ?? 0))
+        .slice(0, 6)
+        .map((g) => ({ label: g.name, value: g.installSizeBytes ?? 0, display: formatSize(g.installSizeBytes) })),
+    [measured]
+  )
+
+  const unplayedSizeBytes = useMemo(
+    () => measured.filter((g) => g.playtimeSeconds === 0).reduce((sum, g) => sum + (g.installSizeBytes ?? 0), 0),
+    [measured]
+  )
+
   const totalPlaytimeSeconds = useMemo(
     () => countedForPlaytime.reduce((sum, g) => sum + g.playtimeSeconds, 0),
     [countedForPlaytime]
@@ -111,6 +139,16 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
             <span className="about-stat-value">{withCover}</span>
             <span className="about-stat-label">have a cover</span>
           </div>
+          <div className="about-stat">
+            <span className="about-stat-value">{formatSize(totalSizeBytes)}</span>
+            <span className="about-stat-label">
+              on disk{measured.length < games.length ? ` (${measured.length} of ${games.length} measured)` : ''}
+            </span>
+          </div>
+          <div className="about-stat">
+            <span className="about-stat-value">{formatSize(unplayedSizeBytes)}</span>
+            <span className="about-stat-label">never played</span>
+          </div>
         </div>
 
         <h3 className="settings-section">By Source</h3>
@@ -128,6 +166,22 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
           <BarList rows={genresByPlaytime} />
         ) : (
           <p className="settings-note">No playtime recorded yet.</p>
+        )}
+
+        <h3 className="settings-section">Biggest on Disk</h3>
+        {biggestGames.length > 0 ? (
+          <BarList rows={biggestGames} />
+        ) : (
+          <p className="settings-note">
+            Sizes are still being measured in the background — it takes a while on a large library.
+          </p>
+        )}
+
+        <h3 className="settings-section">Biggest Never Played</h3>
+        {biggestUnplayed.length > 0 ? (
+          <BarList rows={biggestUnplayed} />
+        ) : (
+          <p className="settings-note">Nothing measured yet, or everything measured has been played.</p>
         )}
 
         <div className="modal-actions">

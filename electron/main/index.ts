@@ -21,7 +21,8 @@ import type {
   SteamGameDetails,
   ScreenshotSweepResult,
   SteamPlaytimeSyncResult,
-  MetadataSweepResult
+  MetadataSweepResult,
+  DiskSizeSweepResult
 } from '../../shared/types'
 import { createZip, extractZip } from './zip'
 import { writeFileAtomic, copyFileAtomic } from './fsAtomic'
@@ -97,6 +98,8 @@ async function loadLibrary(): Promise<void> {
       rating: g.rating ?? null,
       categoryIds: g.categoryIds ?? [],
       excludeFromPlaytime: g.excludeFromPlaytime ?? false,
+      installSizeBytes: g.installSizeBytes ?? null,
+      sizeMeasuredAt: g.sizeMeasuredAt ?? null,
       steamAppId: g.steamAppId ?? null,
       epicAppName: g.epicAppName ?? null,
       gogProductId: g.gogProductId ?? null,
@@ -165,6 +168,10 @@ function broadcastCoverFetchProgress(progress: ScanProgress | null): void {
 
 function broadcastBackupProgress(progress: ScanProgress | null): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send('backup:progress', progress)
+}
+
+function broadcastDiskSizeProgress(progress: ScanProgress | null): void {
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send('disk-size:progress', progress)
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -855,6 +862,102 @@ async function sweepMissingMetadata(): Promise<MetadataSweepResult> {
   }
 }
 
+// Walking a folder tree is the slow part - roughly a second per game on a
+// large library - so this is deliberately never called inline during import.
+async function folderSizeBytes(dir: string): Promise<number | null> {
+  let total = 0
+  let sawAnything = false
+  async function walk(current: string): Promise<void> {
+    const entries = await safeReaddir(current)
+    if (!entries) return
+    sawAnything = true
+    for (const entry of entries) {
+      const full = join(current, entry.name)
+      if (entry.isDirectory()) await walk(full)
+      else if (entry.isFile()) {
+        try {
+          const stat = await fs.stat(full)
+          total += stat.size
+        } catch {
+          // file vanished mid-walk; skip it rather than abort the whole game
+        }
+      }
+    }
+  }
+  await walk(dir)
+  return sawAnything ? total : null
+}
+
+// Re-measure anything older than this, since installs grow with updates and
+// DLC. Everything else is skipped, so repeat passes cost nothing.
+const SIZE_REFRESH_MS = 7 * 24 * 60 * 60 * 1000
+const SIZE_SWEEP_DELAY_MS = 250
+let diskSizeSweepRunning = false
+
+async function sweepDiskSizes(force = false): Promise<DiskSizeSweepResult> {
+  const result: DiskSizeSweepResult = {
+    totalGames: games.length,
+    measuredBefore: games.filter((g) => g.installSizeBytes !== null).length,
+    measured: 0,
+    failed: 0,
+    totalSizeBytes: 0,
+    alreadyRunning: false
+  }
+  if (diskSizeSweepRunning) return { ...result, alreadyRunning: true }
+  diskSizeSweepRunning = true
+
+  try {
+    const now = Date.now()
+    const pending = games.filter((g) => {
+      if (force || g.installSizeBytes === null) return true
+      const measured = g.sizeMeasuredAt ? Date.parse(g.sizeMeasuredAt) : 0
+      return now - measured > SIZE_REFRESH_MS
+    })
+
+    let changed = false
+    let sinceFlush = 0
+    let done = 0
+    for (const game of pending) {
+      const current = games.find((g) => g.id === game.id)
+      if (!current) continue
+      broadcastDiskSizeProgress({ current: done, total: pending.length, currentName: current.name })
+      done++
+
+      const size = await folderSizeBytes(current.installDir)
+      if (size === null) {
+        result.failed++
+      } else {
+        current.installSizeBytes = size
+        current.sizeMeasuredAt = new Date().toISOString()
+        result.measured++
+        changed = true
+        sinceFlush++
+      }
+      // Publish as we go. A full pass over a large library runs for many
+      // minutes, and saving only at the end meant the UI showed "0 measured"
+      // that whole time - and lost everything if the app closed mid-sweep.
+      if (sinceFlush >= 20) {
+        sinceFlush = 0
+        await saveLibrary()
+        broadcastLibrary()
+      }
+      await new Promise((r) => setTimeout(r, SIZE_SWEEP_DELAY_MS))
+    }
+
+    if (changed) {
+      await saveLibrary()
+      broadcastLibrary()
+    }
+    result.totalSizeBytes = games.reduce((sum, g) => sum + (g.installSizeBytes ?? 0), 0)
+    return result
+  } catch (e) {
+    return { ...result, error: e instanceof Error ? e.message : String(e) }
+  } finally {
+    diskSizeSweepRunning = false
+    broadcastDiskSizeProgress(null)
+  }
+}
+
 async function extractIcon(exePath: string, id: string): Promise<string | null> {
   try {
     const img = await app.getFileIcon(exePath, { size: 'large' })
@@ -1010,7 +1113,15 @@ async function findSteamLibraryFolders(steamPath: string): Promise<string[]> {
   try {
     const raw = await fs.readFile(join(steamPath, 'steamapps', 'libraryfolders.vdf'), 'utf-8')
     const paths = [...raw.matchAll(/"path"\s+"([^"]+)"/g)].map((m) => m[1].replace(/\\\\/g, '\\'))
-    return [...new Set([steamPath, ...paths])]
+    // Case-insensitive dedupe: the registry hands back a lowercased path while
+    // libraryfolders.vdf carries the proper casing, so a plain Set treated the
+    // same folder as two libraries and every manifest in it was parsed twice.
+    const seen = new Map<string, string>()
+    for (const p of [steamPath, ...paths]) {
+      const key = p.replace(/[\\/]+$/, '').toLowerCase()
+      if (!seen.has(key)) seen.set(key, p)
+    }
+    return [...seen.values()]
   } catch {
     return [steamPath]
   }
@@ -1034,7 +1145,17 @@ async function parseAppManifests(libraryPath: string): Promise<SteamManifest[]> 
       const appid = raw.match(/"appid"\s+"(\d+)"/i)?.[1]
       const name = raw.match(/"name"\s+"([^"]+)"/i)?.[1]
       const installdir = raw.match(/"installdir"\s+"([^"]+)"/i)?.[1]
-      if (appid && name && installdir) manifests.push({ appid, name, installdir })
+      const stateFlags = Number(raw.match(/"StateFlags"\s+"(\d+)"/i)?.[1] ?? 0)
+      // A manifest existing does NOT mean the game is installed - Steam keeps
+      // one for anything it knows about locally. StateFlags is the truth:
+      // bit 4 is "fully installed", while 1 (uninstalled), 32 (files missing)
+      // and 64 (files corrupt) mean it isn't really there. Measured on a real
+      // machine: 5 of 52 manifests were flagged 70 (= 64|4|2), and those were
+      // exactly the entries the user could see in the library without having
+      // them installed. Bit 2 (update required) is kept - the game is present
+      // and launchable, Steam just wants to patch it.
+      const installed = (stateFlags & 4) !== 0 && (stateFlags & (1 | 32 | 64)) === 0
+      if (appid && name && installdir && installed) manifests.push({ appid, name, installdir })
     } catch {
       // skip an unreadable/partially-written manifest, move on to the next
     }
@@ -1093,10 +1214,22 @@ async function findInstalledSteamGames(): Promise<InstalledSteamGame[] | null> {
   if (!steamPath) return null
   const libraries = await findSteamLibraryFolders(steamPath)
   const result: InstalledSteamGame[] = []
+  // Several appids can share one installdir - Half-Life 2, Lost Coast and both
+  // episodes all live in "common\Half-Life 2", which produced four library
+  // entries pointing at the same folder and the same executable. First appid
+  // for a folder wins; the rest are DLC-like siblings of the same install.
+  const claimedDirs = new Set<string>()
+  const seenAppIds = new Set<number>()
   for (const lib of libraries) {
     const manifests = await parseAppManifests(lib)
     for (const m of manifests) {
-      result.push({ appId: Number(m.appid), name: m.name, installDir: join(lib, 'steamapps', 'common', m.installdir) })
+      const appId = Number(m.appid)
+      const installDir = join(lib, 'steamapps', 'common', m.installdir)
+      const dirKey = installDir.toLowerCase()
+      if (seenAppIds.has(appId) || claimedDirs.has(dirKey)) continue
+      seenAppIds.add(appId)
+      claimedDirs.add(dirKey)
+      result.push({ appId, name: m.name, installDir })
     }
   }
   return result
@@ -1128,6 +1261,8 @@ async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]
       rating: null,
       categoryIds: [],
       excludeFromPlaytime: false,
+      installSizeBytes: null,
+      sizeMeasuredAt: null,
       steamAppId: g.appId,
       epicAppName: null,
       gogProductId: null,
@@ -1180,6 +1315,8 @@ async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
       rating: null,
       categoryIds: [],
       excludeFromPlaytime: false,
+      installSizeBytes: null,
+      sizeMeasuredAt: null,
       steamAppId: null,
       epicAppName: m.appName,
       gogProductId: null,
@@ -1218,6 +1355,8 @@ async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
       rating: null,
       categoryIds: [],
       excludeFromPlaytime: false,
+      installSizeBytes: null,
+      sizeMeasuredAt: null,
       steamAppId: null,
       epicAppName: null,
       gogProductId: g.productId,
@@ -1296,6 +1435,8 @@ async function addNewUbisoftGames(installed: InstalledUbisoftGame[]): Promise<Ga
       rating: null,
       categoryIds: [],
       excludeFromPlaytime: false,
+      installSizeBytes: null,
+      sizeMeasuredAt: null,
       steamAppId: null,
       epicAppName: null,
       gogProductId: null,
@@ -1711,6 +1852,8 @@ function registerIpcHandlers(): void {
       rating: null,
       categoryIds: [],
       excludeFromPlaytime: false,
+      installSizeBytes: null,
+      sizeMeasuredAt: null,
       steamAppId: null,
       epicAppName: null,
       gogProductId: null,
@@ -1777,6 +1920,8 @@ function registerIpcHandlers(): void {
         rating: null,
         categoryIds: [],
         excludeFromPlaytime: false,
+        installSizeBytes: null,
+        sizeMeasuredAt: null,
         steamAppId: null,
         epicAppName: null,
         gogProductId: null,
@@ -2135,6 +2280,8 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('metadata:sweepNow', async (): Promise<MetadataSweepResult> => sweepMissingMetadata())
 
+  ipcMain.handle('sizes:measureNow', async (): Promise<DiskSizeSweepResult> => sweepDiskSizes(true))
+
   ipcMain.handle('categories:getAll', async (): Promise<Category[]> => categories)
 
   ipcMain.handle('categories:create', async (_e, name: string): Promise<Category> => {
@@ -2341,6 +2488,16 @@ if (gotSingleInstanceLock) {
     // Also cheap to re-run - it exits immediately once nothing is missing,
     // and skips games already found to have no match this session.
     setInterval(() => void sweepMissingMetadata(), METADATA_SWEEP_INTERVAL_MS)
+
+    // Deliberately NOT chained behind the cover and screenshot sweeps. Those
+    // are network-bound and can run for many minutes on a large library, and
+    // chaining meant folder sizes hadn't started measuring at all after ten
+    // minutes of uptime. Its own delayed start keeps it clear of the busy part
+    // of startup without depending on anything else finishing; the interval
+    // then picks up newly added games and the weekly re-measure, exiting
+    // immediately when there's nothing due.
+    setTimeout(() => void sweepDiskSizes(), 60 * 1000)
+    setInterval(() => void sweepDiskSizes(), METADATA_SWEEP_INTERVAL_MS)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
