@@ -17,6 +17,8 @@ interface Props {
   onRestoreBackup: () => Promise<void>
   onRestoreFromPath: (path: string) => Promise<void>
   backupBusy: boolean
+  onSweepScreenshotsNow: () => Promise<void>
+  sweepingScreenshots: boolean
 }
 
 type Tab = 'appearance' | 'backup' | 'automation'
@@ -53,7 +55,9 @@ export default function SettingsDialog({
   onBackupNow,
   onRestoreBackup,
   onRestoreFromPath,
-  backupBusy
+  backupBusy,
+  onSweepScreenshotsNow,
+  sweepingScreenshots
 }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('appearance')
   const [clientId, setClientId] = useState(initial.igdbClientId)
@@ -374,6 +378,16 @@ export default function SettingsDialog({
               On launch, checks each platform for games installed or uninstalled since last time and updates your
               library automatically, without needing the manual Import buttons.
             </p>
+
+            <h3 className="settings-section">Screenshot Cache</h3>
+            <p className="settings-note">
+              Steam screenshots for every game — including manually added ones, matched to a Steam store page by
+              name — download gradually in the background (also retried automatically every 15 minutes). If it
+              seems stuck, check now to see exactly what&apos;s happening.
+            </p>
+            <button className="btn" type="button" disabled={sweepingScreenshots} onClick={() => void onSweepScreenshotsNow()}>
+              {sweepingScreenshots ? 'Checking…' : 'Check Now'}
+            </button>
 
             <h3 className="settings-section">Auto Covers (IGDB)</h3>
             <p className="modal-sub">

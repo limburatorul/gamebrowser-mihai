@@ -18,7 +18,8 @@ import type {
   UpdateApplyResult,
   LibrarySyncEvent,
   Category,
-  SteamGameDetails
+  SteamGameDetails,
+  ScreenshotSweepResult
 } from '../../shared/types'
 import { createZip, extractZip } from './zip'
 import { writeFileAtomic, copyFileAtomic } from './fsAtomic'
@@ -529,11 +530,45 @@ const SCREENSHOT_SWEEP_RATE_LIMIT_MAX_BACKOFF_MS = 15 * 60000
 let steamRateLimitedUntil = 0
 let steamRateLimitBackoffMs = SCREENSHOT_SWEEP_RATE_LIMIT_BASE_BACKOFF_MS
 
-async function sweepMissingScreenshots(): Promise<void> {
-  if (Date.now() < steamRateLimitedUntil) return
-  const targets = games.filter((g) => g.steamAppId !== null)
+// Games (by id) where a name search already came back with no Steam match
+// this session - skipped on later sweep passes instead of re-searching
+// every 15 minutes forever. Session-only (resets on restart) since there's
+// nowhere better to persist "we checked and there's no match" on a Game
+// without adding a whole new field for it, and Steam's catalog changing
+// enough to flip this answer is rare enough that a restart-scoped memory is
+// good enough.
+const noSteamMatchGameIds = new Set<string>()
+
+// Result shape is shared with the renderer (shared/types.ts) so the manual
+// "Check Now" trigger (Settings > Automation) can show the user what
+// actually happened instead of the silent black box the automatic-only
+// version was - "left it running overnight, nothing downloaded" was
+// impossible to diagnose further without this.
+async function sweepMissingScreenshots(): Promise<ScreenshotSweepResult> {
+  const targets = games
+  if (Date.now() < steamRateLimitedUntil) {
+    return {
+      totalGames: targets.length,
+      alreadyCached: 0,
+      attempted: 0,
+      downloaded: 0,
+      matchedByName: 0,
+      noStorePage: 0,
+      noMatch: 0,
+      rateLimited: true,
+      retryAfter: new Date(steamRateLimitedUntil).toISOString()
+    }
+  }
+
   let nextIndex = 0
   let rateLimitHit = false
+  let libraryChanged = false
+  let alreadyCached = 0
+  let attempted = 0
+  let downloaded = 0
+  let matchedByName = 0
+  let noStorePage = 0
+  let noMatch = 0
 
   // A fixed pool of workers pulling from a shared cursor, rather than one
   // Promise.all over the whole list, so only SCREENSHOT_SWEEP_CONCURRENCY
@@ -550,10 +585,33 @@ async function sweepMissingScreenshots(): Promise<void> {
       if (rateLimitHit) return
       const i = nextIndex++
       if (i >= targets.length) return
-      const appid = targets[i].steamAppId
-      if (appid === null) continue
-      if (await hasLocalScreenshot(appid)) continue
+      const game = targets[i]
 
+      let appid = game.steamAppId
+      if (appid === null) {
+        if (noSteamMatchGameIds.has(game.id)) continue
+        const match = await searchSteamMatch(game.name)
+        if (!match) {
+          noSteamMatchGameIds.add(game.id)
+          noMatch++
+          continue
+        }
+        // Persisted so future sweeps/uninstall/Game Details all use this
+        // directly instead of re-searching by name every time - same as
+        // setting the Steam ID by hand in the Edit dialog, just automatic.
+        // The user can always correct a wrong match there too.
+        game.steamAppId = match.appid
+        appid = match.appid
+        matchedByName++
+        libraryChanged = true
+      }
+
+      if (await hasLocalScreenshot(appid)) {
+        alreadyCached++
+        continue
+      }
+
+      attempted++
       const result = await fetchSteamAppDetails(appid)
       if (result.rateLimited) {
         rateLimitHit = true
@@ -562,12 +620,34 @@ async function sweepMissingScreenshots(): Promise<void> {
         return
       }
       steamRateLimitBackoffMs = SCREENSHOT_SWEEP_RATE_LIMIT_BASE_BACKOFF_MS
-      if (result.details) await localizeSteamImages(appid, result.details)
+      if (result.details) {
+        await localizeSteamImages(appid, result.details)
+        downloaded++
+      } else {
+        noStorePage++
+      }
       await new Promise((r) => setTimeout(r, SCREENSHOT_SWEEP_DELAY_MS))
     }
   }
 
   await Promise.all(Array.from({ length: SCREENSHOT_SWEEP_CONCURRENCY }, () => worker()))
+
+  if (libraryChanged) {
+    await saveLibrary()
+    broadcastLibrary()
+  }
+
+  return {
+    totalGames: targets.length,
+    alreadyCached,
+    attempted,
+    downloaded,
+    matchedByName,
+    noStorePage,
+    noMatch,
+    rateLimited: rateLimitHit,
+    retryAfter: rateLimitHit ? new Date(steamRateLimitedUntil).toISOString() : null
+  }
 }
 
 async function fetchSteamMetadataForGame(game: Game, needsCover: boolean): Promise<boolean> {
@@ -1814,6 +1894,8 @@ function registerIpcHandlers(): void {
     if (!result.details) return null
     return localizeSteamImages(appid, result.details)
   })
+
+  ipcMain.handle('screenshots:sweepNow', async (): Promise<ScreenshotSweepResult> => sweepMissingScreenshots())
 
   ipcMain.handle('categories:getAll', async (): Promise<Category[]> => categories)
 

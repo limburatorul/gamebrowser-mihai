@@ -89,6 +89,7 @@ export default function App(): JSX.Element {
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null)
   const [checkingForUpdate, setCheckingForUpdate] = useState(false)
+  const [sweepingScreenshots, setSweepingScreenshots] = useState(false)
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [whatsNew, setWhatsNew] = useState<{ title: string; entries: ChangelogEntry[] } | null>(null)
@@ -417,6 +418,36 @@ export default function App(): JSX.Element {
       })
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function handleSweepScreenshotsNow(): Promise<void> {
+    setSweepingScreenshots(true)
+    try {
+      const r = await window.api.sweepScreenshotsNow()
+      if (r.totalGames === 0) {
+        setInfoMessage({ title: 'Screenshot Cache', message: 'Your library is empty.' })
+        return
+      }
+      const lines = [`${r.alreadyCached} of ${r.totalGames} games already have cached screenshots.`]
+      if (r.matchedByName > 0) {
+        lines.push(`Matched ${r.matchedByName} more to a Steam store page by name just now.`)
+      }
+      if (r.attempted > 0) {
+        lines.push(
+          `Checked ${r.attempted}: downloaded ${r.downloaded}, ${r.noStorePage} had no usable Steam page.`
+        )
+      }
+      if (r.noMatch > 0) {
+        lines.push(`${r.noMatch} games have no matching Steam store page at all.`)
+      }
+      if (r.rateLimited) {
+        const retryTime = r.retryAfter ? new Date(r.retryAfter).toLocaleTimeString() : 'shortly'
+        lines.push(`Steam is currently rate-limiting requests — will retry automatically after ${retryTime}.`)
+      }
+      setInfoMessage({ title: 'Screenshot Cache', message: lines.join(' ') })
+    } finally {
+      setSweepingScreenshots(false)
     }
   }
 
@@ -931,6 +962,8 @@ export default function App(): JSX.Element {
           onRestoreBackup={handleRestoreBackup}
           onRestoreFromPath={handleRestoreFromPath}
           backupBusy={busy}
+          onSweepScreenshotsNow={handleSweepScreenshotsNow}
+          sweepingScreenshots={sweepingScreenshots}
         />
       )}
       {aboutOpen && (

@@ -14,7 +14,8 @@ import type {
   UpdateApplyResult,
   LibrarySyncEvent,
   Category,
-  SteamGameDetails
+  SteamGameDetails,
+  ScreenshotSweepResult
 } from '../../shared/types'
 
 const api: GameApi = {
@@ -76,6 +77,7 @@ const api: GameApi = {
   downloadUpdateAndRestart: (assetUrl: string, assetSize: number, version: string): Promise<UpdateApplyResult> =>
     ipcRenderer.invoke('update:downloadAndRestart', assetUrl, assetSize, version),
   getSteamDetails: (id: string): Promise<SteamGameDetails | null> => ipcRenderer.invoke('games:getSteamDetails', id),
+  sweepScreenshotsNow: (): Promise<ScreenshotSweepResult> => ipcRenderer.invoke('screenshots:sweepNow'),
   getCategories: (): Promise<Category[]> => ipcRenderer.invoke('categories:getAll'),
   createCategory: (name: string): Promise<Category> => ipcRenderer.invoke('categories:create', name),
   renameCategory: (id: string, name: string): Promise<Category | null> =>

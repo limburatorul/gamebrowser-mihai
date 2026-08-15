@@ -6,6 +6,18 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.18.0',
+    changes: [
+      "The background screenshot cache now covers every game in your library, not just ones imported from Steam — manually added games get matched to a Steam store page by name (same matching already used for covers), and that match is remembered so it doesn't need to search again next time. Wrong match? Correct or clear it any time via the Steam ID field in the Edit dialog."
+    ]
+  },
+  {
+    version: '1.17.0',
+    changes: [
+      'New: "Check Now" button in Settings → Automation for the screenshot cache — shows exactly what\'s happening (how many are already cached, how many were checked just now, how many downloaded, and whether Steam is currently rate-limiting requests) instead of it being a silent background process with no visibility.'
+    ]
+  },
+  {
     version: '1.16.3',
     changes: [
       "Fix: the automatic background screenshot download only ever ran once at startup — if that one attempt hit Steam's rate limit and backed off, nothing brought it back for the rest of the session even long after the block had actually lifted (opening the Game Details panel manually still worked fine in the meantime, which was the tell). It now automatically retries every 15 minutes."
