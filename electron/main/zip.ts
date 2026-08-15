@@ -132,7 +132,11 @@ function closeStream(out: Writable): Promise<void> {
  * Zip64 is emitted only where a field actually overflows, so archives that fit
  * in the classic format stay byte-for-byte ordinary and readable anywhere.
  */
-export async function createZip(items: ZipSource[], outputZipPath: string): Promise<void> {
+export async function createZip(
+  items: ZipSource[],
+  outputZipPath: string,
+  onProgress?: (done: number, total: number, currentName: string) => void
+): Promise<void> {
   const files: ZipFileEntry[] = []
   for (const item of items) {
     if (item.isDir) {
@@ -164,7 +168,11 @@ export async function createZip(items: ZipSource[], outputZipPath: string): Prom
   const dosDate = toDosDate(now)
 
   try {
+    let seen = 0
     for (const file of files) {
+      // Reported before the work, so the name shown is the one being handled.
+      onProgress?.(seen, files.length, file.zipPath)
+      seen++
       let data: Buffer
       try {
         data = await fs.readFile(file.fsPath)
@@ -236,6 +244,8 @@ export async function createZip(items: ZipSource[], outputZipPath: string): Prom
       offset += localHeader.length + nameBuf.length + payload.length
       written++
     }
+
+    onProgress?.(files.length, files.length, '')
 
     const centralStart = offset
     let centralSize = 0

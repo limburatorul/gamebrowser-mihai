@@ -121,13 +121,28 @@ export default function TopBar({
         </button>
       </div>
 
-      <input
-        className="search-input"
-        type="text"
-        placeholder="Search library..."
-        value={search}
-        onChange={(e) => onSearchChange(e.target.value)}
-      />
+      {/* The wrapper carries the flex sizing the input used to own, so the
+          topbar's layout (and its measured minimum width) is unchanged. */}
+      <div className="search-wrap">
+        <input
+          className="search-input"
+          type="text"
+          placeholder="Search library..."
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && search) {
+              e.stopPropagation()
+              onSearchChange('')
+            }
+          }}
+        />
+        {search && (
+          <button className="search-clear" type="button" title="Clear search" onClick={() => onSearchChange('')}>
+            ×
+          </button>
+        )}
+      </div>
 
       <div className="topbar-controls">
         <select className="select" value={sortKey} onChange={(e) => onSortChange(e.target.value as SortKey)}>

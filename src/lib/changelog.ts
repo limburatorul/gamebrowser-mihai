@@ -6,6 +6,36 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.22.1',
+    changes: [
+      'Fix: the most-played list in the sidebar ran underneath the bar at the bottom of the window, hiding its last entries and the total. It only started happening once importing Steam playtime made that list long enough to reach the bottom. Same fix the details panel got.'
+    ]
+  },
+  {
+    version: '1.22.0',
+    changes: [
+      'Fix: covers and genres were only ever fetched once, at the moment a game was imported — if that attempt failed, the game stayed blank forever unless you noticed and pressed "Fetch Covers" yourself. Anything still missing is now retried automatically on startup and every 15 minutes. On a 566-game library this filled in 40 covers and 38 genre lists on the first run.',
+      'New: Settings → Automation → Covers & Genres has a "Check Now" button that reports exactly what is still missing and what could not be matched anywhere.',
+      'New: a small × in the search box clears it, and Escape does the same while typing there.'
+    ]
+  },
+  {
+    version: '1.21.0',
+    changes: [
+      'New: your real Steam playtime is now part of the library. Steam keeps its own record of how long you have played each game, and that is merged in on launch for anything with a Steam ID — so the most-played list, the dashboard and sorting by playtime finally reflect all of your hours instead of only the sessions started from here. Nothing is double-counted: Steam already counts games launched from this app, so the larger of the two figures wins rather than the two being added together.',
+      'Last-played dates come across from Steam too, which fills in the Recently Played filter.',
+      'Settings → Automation has a "Sync Playtime Now" button if you want to pull it in without restarting.'
+    ]
+  },
+  {
+    version: '1.20.0',
+    changes: [
+      'New: backups are now limited to the newest few archives, set in Settings → Backup & Restore (default 5, or "all" to keep everything). Nothing deleted old backups before, so with periodic backup on, the folder grew forever — and now that a backup includes cached screenshots, that is several GB per run.',
+      'Backup Now shows progress while it works instead of just going quiet.',
+      'Leftover part-files from an interrupted backup are cleaned up automatically.'
+    ]
+  },
+  {
     version: '1.19.3',
     changes: [
       'Fix: backups failed with "Array buffer allocation failed" once the cached screenshots pushed the data folder past a couple of gigabytes — the whole archive was being assembled in memory before anything was written to disk. It is now written out as it goes, so the size of your library no longer matters. A 2.8 GB backup here now takes about 12 seconds and around 140 MB of memory.',

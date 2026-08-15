@@ -46,6 +46,13 @@ const api: GameApi = {
     ipcRenderer.on('cover-fetch:progress', listener)
     return () => ipcRenderer.removeListener('cover-fetch:progress', listener)
   },
+  onBackupProgress: (cb: (progress: ScanProgress | null) => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, progress: ScanProgress | null): void => cb(progress)
+    ipcRenderer.on('backup:progress', listener)
+    return () => ipcRenderer.removeListener('backup:progress', listener)
+  },
+  syncSteamPlaytimeNow: () => ipcRenderer.invoke('steam:syncPlaytime'),
+  sweepMetadataNow: () => ipcRenderer.invoke('metadata:sweepNow'),
   getSettings: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: Settings): Promise<Settings> => ipcRenderer.invoke('settings:save', settings),
   onLibraryChanged: (cb: (games: Game[]) => void) => {

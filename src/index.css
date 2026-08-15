@@ -101,16 +101,51 @@ select {
   flex-shrink: 0;
 }
 
-.search-input {
+/* The flex sizing lives on the wrapper, not the input, so adding the clear
+   button didn't change the topbar's layout or its measured minimum width. */
+.search-wrap {
   flex: 1;
   min-width: 120px;
   max-width: 420px;
+  position: relative;
+  display: flex;
+}
+
+.search-input {
+  width: 100%;
   background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 7px 12px;
+  /* Right padding always reserves room for the clear button, so the text
+     doesn't shift sideways the moment the first character is typed. */
+  padding: 7px 30px 7px 12px;
   color: var(--text-0);
   outline: none;
+}
+
+.search-clear {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--text-2);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.search-clear:hover {
+  background: var(--bg-3);
+  color: var(--text-0);
 }
 
 .search-input:focus {
@@ -424,6 +459,19 @@ select {
   display: flex;
   flex-direction: column;
   padding: 64px 0 12px;
+  transition: padding-bottom 220ms ease;
+}
+
+/* Third place needing to clear the position:absolute details bar, after
+   .game-scroll and .details-panel. It only started mattering once Steam
+   playtime import made the most-played list long enough to reach the bottom
+   of the window - before that it never got near it. Padding rather than the
+   margin .details-panel uses: the bar spans the full window width, so the
+   sidebar's background should keep painting behind the translucent bar
+   instead of stopping short and leaving a strip of app background. The
+   flex:1 list inside ends at the padding edge either way. */
+.app.has-details .sidebar {
+  padding-bottom: calc(12px + var(--details-bar-height));
 }
 
 .sidebar-brand {

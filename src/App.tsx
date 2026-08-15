@@ -11,6 +11,7 @@ import type {
   UpdateCheckResult,
   ViewMode
 } from '@shared/types'
+import { formatPlaytime } from './lib/localFile'
 import Sidebar, { type LibraryFilter } from './components/Sidebar'
 import TopBar from './components/TopBar'
 import GameGrid from './components/GameGrid'
@@ -54,6 +55,7 @@ export default function App(): JSX.Element {
   const [savingEdit, setSavingEdit] = useState(false)
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null)
   const [coverFetchProgress, setCoverFetchProgress] = useState<ScanProgress | null>(null)
+  const [backupProgress, setBackupProgress] = useState<ScanProgress | null>(null)
   const [infoMessage, setInfoMessage] = useState<{ title: string; message: string } | null>(null)
   const [syncToasts, setSyncToasts] = useState<SyncToast[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -64,6 +66,7 @@ export default function App(): JSX.Element {
     backupFolder: '',
     backupEnabled: false,
     backupIntervalHours: 24,
+    backupKeepCount: 5,
     lastBackupAt: null,
     librarySyncEnabled: true
   })
@@ -90,6 +93,8 @@ export default function App(): JSX.Element {
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null)
   const [checkingForUpdate, setCheckingForUpdate] = useState(false)
   const [sweepingScreenshots, setSweepingScreenshots] = useState(false)
+  const [syncingPlaytime, setSyncingPlaytime] = useState(false)
+  const [sweepingMetadata, setSweepingMetadata] = useState(false)
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [whatsNew, setWhatsNew] = useState<{ title: string; entries: ChangelogEntry[] } | null>(null)
@@ -133,6 +138,7 @@ export default function App(): JSX.Element {
     })
     const offScanProgress = window.api.onScanProgress(setScanProgress)
     const offCoverFetchProgress = window.api.onCoverFetchProgress(setCoverFetchProgress)
+    const offBackupProgress = window.api.onBackupProgress(setBackupProgress)
     return () => {
       offLibrary()
       offLibrarySynced()
@@ -140,6 +146,7 @@ export default function App(): JSX.Element {
       offRunning()
       offScanProgress()
       offCoverFetchProgress()
+      offBackupProgress()
     }
   }, [])
 
@@ -464,6 +471,69 @@ export default function App(): JSX.Element {
       setInfoMessage({ title: 'Screenshot Cache', message: lines.join(' ') })
     } finally {
       setSweepingScreenshots(false)
+    }
+  }
+
+  async function handleSweepMetadataNow(): Promise<void> {
+    setSweepingMetadata(true)
+    try {
+      const r = await window.api.sweepMetadataNow()
+      if (r.alreadyRunning) {
+        setInfoMessage({ title: 'Covers & Genres', message: 'A sweep is already running — give it a moment.' })
+        return
+      }
+      if (r.error) {
+        setInfoMessage({ title: 'Covers & Genres', message: `Something went wrong: ${r.error}` })
+        return
+      }
+      if (r.missingCoverBefore === 0 && r.missingGenresBefore === 0) {
+        setInfoMessage({
+          title: 'Covers & Genres',
+          message: `All ${r.totalGames} games already have a cover and genres.`
+        })
+        return
+      }
+      const lines = [
+        `${r.missingCoverBefore} games were missing a cover and ${r.missingGenresBefore} were missing genres.`
+      ]
+      if (r.attempted > 0) {
+        lines.push(`Checked ${r.attempted}: filled in ${r.coversFilled} covers and ${r.genresFilled} genre lists.`)
+      }
+      if (r.noMatch > 0) {
+        lines.push(`${r.noMatch} had no match on any configured source — they'll be retried next time you start up.`)
+      }
+      if (r.skippedAfterEarlierMiss > 0) {
+        lines.push(`${r.skippedAfterEarlierMiss} were skipped, already checked without a match this session.`)
+      }
+      setInfoMessage({ title: 'Covers & Genres', message: lines.join(' ') })
+    } finally {
+      setSweepingMetadata(false)
+    }
+  }
+
+  async function handleSyncSteamPlaytime(): Promise<void> {
+    setSyncingPlaytime(true)
+    try {
+      const r = await window.api.syncSteamPlaytimeNow()
+      if (r.error) {
+        setInfoMessage({ title: 'Steam Playtime', message: `Couldn't read Steam's playtime: ${r.error}` })
+        return
+      }
+      if (!r.steamFound) {
+        setInfoMessage({ title: 'Steam Playtime', message: "Steam doesn't appear to be installed on this PC." })
+        return
+      }
+      const lines = [
+        `Steam has playtime recorded for ${r.steamAppsWithPlaytime} games; ${r.matchableGames} of yours carry a Steam ID.`
+      ]
+      lines.push(
+        r.updated > 0
+          ? `Updated ${r.updated}. Your library now totals ${formatPlaytime(r.totalPlaytimeSeconds)}.`
+          : 'Everything was already up to date.'
+      )
+      setInfoMessage({ title: 'Steam Playtime', message: lines.join(' ') })
+    } finally {
+      setSyncingPlaytime(false)
     }
   }
 
@@ -987,8 +1057,13 @@ export default function App(): JSX.Element {
           onRestoreBackup={handleRestoreBackup}
           onRestoreFromPath={handleRestoreFromPath}
           backupBusy={busy}
+          backupProgress={backupProgress}
           onSweepScreenshotsNow={handleSweepScreenshotsNow}
           sweepingScreenshots={sweepingScreenshots}
+          onSyncSteamPlaytime={handleSyncSteamPlaytime}
+          syncingPlaytime={syncingPlaytime}
+          onSweepMetadataNow={handleSweepMetadataNow}
+          sweepingMetadata={sweepingMetadata}
         />
       )}
       {aboutOpen && (

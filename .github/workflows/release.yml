@@ -12,21 +12,35 @@ jobs:
   build-and-release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          # Electron 31 bundles Node 20, but this only builds and packages -
+          # nothing here runs against Electron's own runtime, so the current
+          # LTS is fine and keeps the toolchain off deprecated versions.
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Typecheck
+        run: npm run typecheck
+
+      # The backup archive writer is hand-rolled, Zip64 included. A regression
+      # there produces archives that look fine and still read back through our
+      # own reader while being broken for everything else, so this runs before
+      # anything gets published. The >4GB case is opt-in locally and skipped
+      # here - it needs ~10GB of scratch space.
+      - name: Test the backup archive writer
+        run: npm run test:zip
+
       - name: Build portable exe
         run: npm run dist
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*.exe
           generate_release_notes: true

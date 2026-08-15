@@ -19,11 +19,14 @@ import type {
   LibrarySyncEvent,
   Category,
   SteamGameDetails,
-  ScreenshotSweepResult
+  ScreenshotSweepResult,
+  SteamPlaytimeSyncResult,
+  MetadataSweepResult
 } from '../../shared/types'
 import { createZip, extractZip } from './zip'
 import { writeFileAtomic, copyFileAtomic } from './fsAtomic'
 import { findGogGames, type GogGame } from './gog'
+import { readSteamPlaytime } from './steamPlaytime'
 
 const execFileAsync = promisify(execFile)
 
@@ -77,6 +80,7 @@ let settings: Settings = {
   backupFolder: '',
   backupEnabled: false,
   backupIntervalHours: 24,
+  backupKeepCount: 5,
   lastBackupAt: null,
   librarySyncEnabled: true
 }
@@ -157,6 +161,10 @@ function broadcastScanProgress(progress: ScanProgress | null): void {
 
 function broadcastCoverFetchProgress(progress: ScanProgress | null): void {
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send('cover-fetch:progress', progress)
+}
+
+function broadcastBackupProgress(progress: ScanProgress | null): void {
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send('backup:progress', progress)
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -768,6 +776,85 @@ async function runCoverAutoQueue(): Promise<void> {
   coverAutoQueueRunning = false
 }
 
+// Games with no match on any source. Session-only on purpose: a fresh launch
+// retries them, in case the miss was really a transient failure rather than
+// the game genuinely not existing on IGDB/Steam/RAWG.
+const noMetadataMatchIds = new Set<string>()
+let metadataSweepRunning = false
+
+const METADATA_SWEEP_DELAY_MS = 700
+const METADATA_SWEEP_INTERVAL_MS = 15 * 60 * 1000
+
+/**
+ * Fills in covers and genres that are still missing, and keeps doing it.
+ *
+ * enqueueAutoCoverFetch only ever fires when a game is *added*, so a fetch
+ * that failed at that moment - network blip, expired IGDB token, a Steam
+ * hiccup - left that game without a cover permanently, until someone noticed
+ * and pressed "Fetch Covers" by hand. On this library that was 78 games with
+ * no cover and 98 with no genres, 47 of them Steam imports whose appid was
+ * known all along. Exactly the shape of the screenshot-sweep bug, so it gets
+ * the same treatment: periodic retry plus a manual trigger that reports what
+ * actually happened.
+ */
+async function sweepMissingMetadata(): Promise<MetadataSweepResult> {
+  const result: MetadataSweepResult = {
+    totalGames: games.length,
+    missingCoverBefore: games.filter((g) => !g.coverPath).length,
+    missingGenresBefore: games.filter((g) => g.genres.length === 0).length,
+    attempted: 0,
+    coversFilled: 0,
+    genresFilled: 0,
+    noMatch: 0,
+    skippedAfterEarlierMiss: 0,
+    alreadyRunning: false
+  }
+  if (metadataSweepRunning) return { ...result, alreadyRunning: true }
+  metadataSweepRunning = true
+
+  try {
+    const pending = games.filter((g) => !g.coverPath || g.genres.length === 0)
+    let changed = false
+
+    for (const game of pending) {
+      // The library can change under us mid-sweep (a sync removing a game, a
+      // manual fetch filling one in), so re-check against the live object.
+      const current = games.find((g) => g.id === game.id)
+      if (!current || (current.coverPath && current.genres.length > 0)) continue
+      if (noMetadataMatchIds.has(current.id)) {
+        result.skippedAfterEarlierMiss++
+        continue
+      }
+
+      const hadCover = !!current.coverPath
+      const hadGenres = current.genres.length > 0
+      result.attempted++
+
+      const source = await fetchMetadataForGame(current)
+      if (source) {
+        if (!hadCover && current.coverPath) result.coversFilled++
+        if (!hadGenres && current.genres.length > 0) result.genresFilled++
+        changed = true
+      } else {
+        result.noMatch++
+        noMetadataMatchIds.add(current.id)
+      }
+
+      await new Promise((r) => setTimeout(r, METADATA_SWEEP_DELAY_MS))
+    }
+
+    if (changed) {
+      await saveLibrary()
+      broadcastLibrary()
+    }
+    return result
+  } catch (e) {
+    return { ...result, error: e instanceof Error ? e.message : String(e) }
+  } finally {
+    metadataSweepRunning = false
+  }
+}
+
 async function extractIcon(exePath: string, id: string): Promise<string | null> {
   try {
     const img = await app.getFileIcon(exePath, { size: 'large' })
@@ -1293,6 +1380,97 @@ async function repairIgnoredExePaths(): Promise<void> {
   }
 }
 
+const BACKUP_NAME_RE = /^game-browser-backup-.*\.zip$/i
+
+// Nothing used to delete old archives, so with scheduled backups on, the
+// folder grew forever - and once the screenshot cache landed that meant a
+// ~3GB file per run. Keeps the newest `backupKeepCount`, deletes the rest.
+// Also sweeps `.part` files, which a backup interrupted mid-write leaves.
+async function pruneOldBackups(): Promise<void> {
+  const keep = settings.backupKeepCount
+  if (!settings.backupFolder) return
+  try {
+    const entries = await fs.readdir(settings.backupFolder, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.zip.part')) {
+        await fs.rm(join(settings.backupFolder, entry.name), { force: true }).catch(() => undefined)
+      }
+    }
+    if (keep <= 0) return
+    const zips = entries.filter((e) => e.isFile() && BACKUP_NAME_RE.test(e.name)).map((e) => e.name)
+    // The timestamp in the name sorts chronologically as plain text, so this
+    // needs no stat() calls and can't be thrown off by mtimes changing.
+    zips.sort((a, b) => b.localeCompare(a))
+    for (const name of zips.slice(keep)) {
+      await fs.rm(join(settings.backupFolder, name), { force: true }).catch(() => undefined)
+    }
+  } catch {
+    // A backup folder we can't read isn't worth failing a good backup over.
+  }
+}
+
+/**
+ * Pulls Steam's own recorded playtime into the library. Without this, playtime
+ * only ever reflects launches made through this app, which for an imported
+ * library means the stat is close to meaningless.
+ *
+ * Values are merged with `max()`, never summed: launching a Steam game from
+ * here still goes through Steam, so Steam has already counted that session and
+ * adding the two would double it. Taking the larger also means a session Steam
+ * somehow missed isn't thrown away.
+ */
+async function syncSteamPlaytime(): Promise<SteamPlaytimeSyncResult> {
+  const matchable = games.filter((g) => g.steamAppId !== null)
+  const base: SteamPlaytimeSyncResult = {
+    steamFound: false,
+    steamAppsWithPlaytime: 0,
+    matchableGames: matchable.length,
+    updated: 0,
+    totalPlaytimeSeconds: 0
+  }
+  try {
+    const steamPath = await findSteamPath()
+    if (!steamPath) return base
+    const playtime = await readSteamPlaytime(steamPath)
+    base.steamFound = true
+    base.steamAppsWithPlaytime = playtime.size
+    if (playtime.size === 0) return base
+
+    let updated = 0
+    for (const game of matchable) {
+      const entry = playtime.get(game.steamAppId as number)
+      if (!entry) continue
+      let changed = false
+
+      const steamSeconds = entry.playtimeMinutes * 60
+      if (steamSeconds > game.playtimeSeconds) {
+        game.playtimeSeconds = steamSeconds
+        changed = true
+      }
+
+      if (entry.lastPlayedUnix) {
+        const steamLastPlayed = new Date(entry.lastPlayedUnix * 1000).toISOString()
+        if (!game.lastPlayed || steamLastPlayed > game.lastPlayed) {
+          game.lastPlayed = steamLastPlayed
+          changed = true
+        }
+      }
+
+      if (changed) updated++
+    }
+
+    base.updated = updated
+    base.totalPlaytimeSeconds = games.reduce((sum, g) => sum + g.playtimeSeconds, 0)
+    if (updated > 0) {
+      await saveLibrary()
+      broadcastLibrary()
+    }
+    return base
+  } catch (e) {
+    return { ...base, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 async function runBackup(): Promise<BackupResult> {
   if (!settings.backupFolder) return { ok: false, error: 'No backup folder set.', settings }
   try {
@@ -1308,13 +1486,17 @@ async function runBackup(): Promise<BackupResult> {
         { zipPath: 'icons', fsPath: iconsDir, isDir: true },
         { zipPath: 'screenshots', fsPath: screenshotsDir, isDir: true }
       ],
-      dest
+      dest,
+      (current, total, currentName) => broadcastBackupProgress({ current, total, currentName })
     )
     settings.lastBackupAt = new Date().toISOString()
     await saveSettingsToDisk()
+    await pruneOldBackups()
     return { ok: true, path: dest, settings }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e), settings }
+  } finally {
+    broadcastBackupProgress(null)
   }
 }
 
@@ -1911,6 +2093,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('screenshots:sweepNow', async (): Promise<ScreenshotSweepResult> => sweepMissingScreenshots())
 
+  ipcMain.handle('steam:syncPlaytime', async (): Promise<SteamPlaytimeSyncResult> => syncSteamPlaytime())
+
+  ipcMain.handle('metadata:sweepNow', async (): Promise<MetadataSweepResult> => sweepMissingMetadata())
+
   ipcMain.handle('categories:getAll', async (): Promise<Category[]> => categories)
 
   ipcMain.handle('categories:create', async (_e, name: string): Promise<Category> => {
@@ -1963,9 +2149,15 @@ function registerIpcHandlers(): void {
       backupEnabled: !!prefs.backupEnabled,
       backupIntervalHours: Number.isFinite(prefs.backupIntervalHours)
         ? Math.min(720, Math.max(1, Math.round(prefs.backupIntervalHours)))
-        : settings.backupIntervalHours
+        : settings.backupIntervalHours,
+      backupKeepCount: Number.isFinite(prefs.backupKeepCount)
+        ? Math.min(50, Math.max(0, Math.round(prefs.backupKeepCount)))
+        : settings.backupKeepCount
     }
     await saveSettingsToDisk()
+    // Lowering the limit should take effect straight away, not only after the
+    // next backup happens to run.
+    await pruneOldBackups()
     return settings
   })
 
@@ -2075,7 +2267,14 @@ if (gotSingleInstanceLock) {
     registerIpcHandlers()
     createWindow()
     void repairIgnoredExePaths()
-    void syncPlatformLibraries().then(() => sweepMissingScreenshots())
+    // Playtime sync runs after the library sync so games imported on this
+    // launch already exist (and carry a steamAppId) by the time it looks.
+    // Gated by the same librarySyncEnabled preference as everything else that
+    // reconciles the library against a platform.
+    void syncPlatformLibraries()
+      .then(() => (settings.librarySyncEnabled ? syncSteamPlaytime() : undefined))
+      .then(() => sweepMissingMetadata())
+      .then(() => sweepMissingScreenshots())
     void maybeRunScheduledBackup()
     void cleanupOldPortableExes()
     // The just-replaced old instance may still hold its exe file locked for
@@ -2098,6 +2297,12 @@ if (gotSingleInstanceLock) {
     // repeatedly: it short-circuits instantly both while still inside an
     // active backoff window and once the whole library is already cached.
     setInterval(() => void sweepMissingScreenshots(), 15 * 60 * 1000)
+
+    // Same reasoning for covers/genres: the per-game fetch on import is a
+    // single attempt, so anything that failed once stayed missing forever.
+    // Also cheap to re-run - it exits immediately once nothing is missing,
+    // and skips games already found to have no match this session.
+    setInterval(() => void sweepMissingMetadata(), METADATA_SWEEP_INTERVAL_MS)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { BackupEntry, BackupPrefs, Settings } from '@shared/types'
+import type { BackupEntry, BackupPrefs, ScanProgress, Settings } from '@shared/types'
 import type { UiPrefs } from '../lib/uiPrefs'
 import ColorPicker from './ColorPicker'
 import { ACCENT_PRESETS, SIDEBAR_PRESETS } from '../lib/color'
@@ -17,8 +17,13 @@ interface Props {
   onRestoreBackup: () => Promise<void>
   onRestoreFromPath: (path: string) => Promise<void>
   backupBusy: boolean
+  backupProgress: ScanProgress | null
   onSweepScreenshotsNow: () => Promise<void>
   sweepingScreenshots: boolean
+  onSyncSteamPlaytime: () => Promise<void>
+  syncingPlaytime: boolean
+  onSweepMetadataNow: () => Promise<void>
+  sweepingMetadata: boolean
 }
 
 type Tab = 'appearance' | 'backup' | 'automation'
@@ -56,8 +61,13 @@ export default function SettingsDialog({
   onRestoreBackup,
   onRestoreFromPath,
   backupBusy,
+  backupProgress,
   onSweepScreenshotsNow,
-  sweepingScreenshots
+  sweepingScreenshots,
+  onSyncSteamPlaytime,
+  syncingPlaytime,
+  onSweepMetadataNow,
+  sweepingMetadata
 }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('appearance')
   const [clientId, setClientId] = useState(initial.igdbClientId)
@@ -66,6 +76,7 @@ export default function SettingsDialog({
   const [backupFolder, setBackupFolder] = useState(initial.backupFolder)
   const [backupEnabled, setBackupEnabled] = useState(initial.backupEnabled)
   const [backupIntervalHours, setBackupIntervalHours] = useState(initial.backupIntervalHours)
+  const [backupKeepCount, setBackupKeepCount] = useState(initial.backupKeepCount)
   const [librarySyncEnabled, setLibrarySyncEnabled] = useState(initial.librarySyncEnabled)
   const [backups, setBackups] = useState<BackupEntry[]>([])
   const [backupsError, setBackupsError] = useState<string | null>(null)
@@ -101,10 +112,13 @@ export default function SettingsDialog({
   }
 
   function persistBackupPrefs(patch: Partial<BackupPrefs>): void {
-    const next: BackupPrefs = { backupFolder, backupEnabled, backupIntervalHours, ...patch }
+    const next: BackupPrefs = { backupFolder, backupEnabled, backupIntervalHours, backupKeepCount, ...patch }
     setBackupFolder(next.backupFolder)
     setBackupEnabled(next.backupEnabled)
     setBackupIntervalHours(next.backupIntervalHours)
+    setBackupKeepCount(next.backupKeepCount)
+    // Lowering the keep count prunes immediately in main, so the list has to
+    // be re-read rather than assumed unchanged.
     void onSaveBackupPrefs(next).then(refreshBackups)
   }
 
@@ -336,11 +350,35 @@ export default function SettingsDialog({
               <span className="settings-slider-value">{formatHours(backupIntervalHours)}</span>
             </div>
 
+            <div className="settings-slider-row">
+              <span className="settings-slider-label">Keep the newest</span>
+              <input
+                type="range"
+                min={0}
+                max={20}
+                step={1}
+                value={backupKeepCount}
+                onChange={(e) => persistBackupPrefs({ backupKeepCount: Number(e.target.value) })}
+              />
+              <span className="settings-slider-value">
+                {backupKeepCount === 0 ? 'all' : backupKeepCount}
+              </span>
+            </div>
+
             <p className="settings-note">
-              Saved as a single .zip archive (max compression) containing your library, settings, covers, icons, and
-              cached Steam screenshots. Last backup: {formatLastBackup(initial.lastBackupAt)}. If the app
-              wasn&apos;t running when a backup was due, it runs on the next startup instead.
+              Saved as a single .zip archive containing your library, settings, covers, icons, and cached Steam
+              screenshots. Older archives beyond the number above are deleted after each backup — with screenshots
+              cached these run to several GB each, so keeping every one adds up quickly. Last backup:{' '}
+              {formatLastBackup(initial.lastBackupAt)}. If the app wasn&apos;t running when a backup was due, it runs
+              on the next startup instead.
             </p>
+
+            {backupProgress && (
+              <p className="settings-note backup-progress">
+                Backing up… {backupProgress.current.toLocaleString()} / {backupProgress.total.toLocaleString()} files
+                {backupProgress.currentName ? ` — ${backupProgress.currentName}` : ''}
+              </p>
+            )}
 
             <div className="backup-actions-row">
               <button className="btn" type="button" disabled={backupBusy} onClick={() => void onRestoreBackup()}>
@@ -417,6 +455,32 @@ export default function SettingsDialog({
             </p>
             <button className="btn" type="button" disabled={sweepingScreenshots} onClick={() => void onSweepScreenshotsNow()}>
               {sweepingScreenshots ? 'Checking…' : 'Check Now'}
+            </button>
+
+            <h3 className="settings-section">Covers &amp; Genres</h3>
+            <p className="settings-note">
+              Anything still missing a cover or genres is retried automatically in the background, every 15 minutes
+              and on startup — a fetch that failed when the game was first imported no longer leaves it blank for
+              good. Check now to see exactly what is missing and what could not be matched.
+            </p>
+            <button className="btn" type="button" disabled={sweepingMetadata} onClick={() => void onSweepMetadataNow()}>
+              {sweepingMetadata ? 'Checking…' : 'Check Now'}
+            </button>
+
+            <h3 className="settings-section">Steam Playtime</h3>
+            <p className="settings-note">
+              Steam keeps its own record of how long you have played each game. On launch, that is merged into your
+              library for anything with a Steam ID, so the playtime list and dashboard reflect all of your time, not
+              only the sessions started from here. Steam&apos;s figure and the locally tracked one are never added
+              together — the larger of the two wins, since launching a Steam game from here is still counted by Steam.
+            </p>
+            <button
+              className="btn"
+              type="button"
+              disabled={syncingPlaytime}
+              onClick={() => void onSyncSteamPlaytime()}
+            >
+              {syncingPlaytime ? 'Syncing…' : 'Sync Playtime Now'}
             </button>
 
             <h3 className="settings-section">Auto Covers (IGDB)</h3>
@@ -497,6 +561,7 @@ export default function SettingsDialog({
                 backupFolder,
                 backupEnabled,
                 backupIntervalHours,
+                backupKeepCount,
                 lastBackupAt: initial.lastBackupAt,
                 librarySyncEnabled
               })

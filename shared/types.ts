@@ -60,6 +60,9 @@ export interface Settings {
   backupFolder: string
   backupEnabled: boolean
   backupIntervalHours: number
+  // How many archives to keep in the backup folder; older ones are deleted
+  // after each successful backup. 0 means keep everything.
+  backupKeepCount: number
   lastBackupAt: string | null
   librarySyncEnabled: boolean
 }
@@ -68,6 +71,7 @@ export interface BackupPrefs {
   backupFolder: string
   backupEnabled: boolean
   backupIntervalHours: number
+  backupKeepCount: number
 }
 
 export interface BackupResult {
@@ -116,6 +120,35 @@ export interface ScreenshotSweepResult {
   noMatch: number
   rateLimited: boolean
   retryAfter: string | null
+}
+
+export interface MetadataSweepResult {
+  totalGames: number
+  missingCoverBefore: number
+  missingGenresBefore: number
+  attempted: number
+  coversFilled: number
+  genresFilled: number
+  /** Games this pass found nothing for on any source. */
+  noMatch: number
+  /** Skipped because an earlier pass this session already found nothing. */
+  skippedAfterEarlierMiss: number
+  /** True when a sweep was already in flight, so this call did nothing. */
+  alreadyRunning: boolean
+  error?: string
+}
+
+export interface SteamPlaytimeSyncResult {
+  /** False when Steam isn't installed, or its local config couldn't be read. */
+  steamFound: boolean
+  /** Apps Steam has a playtime record for, across every account on the PC. */
+  steamAppsWithPlaytime: number
+  /** Library games carrying a steamAppId, i.e. the ones that can be matched. */
+  matchableGames: number
+  /** Games whose playtime or last-played was actually raised by this sync. */
+  updated: number
+  totalPlaytimeSeconds: number
+  error?: string
 }
 
 export interface LibrarySyncEvent {
@@ -180,6 +213,7 @@ export interface GameApi {
   onGameRunningChanged(cb: (payload: { id: string; running: boolean }) => void): () => void
   pickBackupFolder(): Promise<string | null>
   saveBackupPrefs(prefs: BackupPrefs): Promise<Settings>
+  onBackupProgress(cb: (progress: ScanProgress | null) => void): () => void
   backupNow(): Promise<BackupResult>
   restoreFromBackup(): Promise<BackupResult | null>
   listBackups(): Promise<BackupListResult>
@@ -192,6 +226,8 @@ export interface GameApi {
   downloadUpdateAndRestart(assetUrl: string, assetSize: number, version: string): Promise<UpdateApplyResult>
   getSteamDetails(id: string): Promise<SteamGameDetails | null>
   sweepScreenshotsNow(): Promise<ScreenshotSweepResult>
+  syncSteamPlaytimeNow(): Promise<SteamPlaytimeSyncResult>
+  sweepMetadataNow(): Promise<MetadataSweepResult>
   getCategories(): Promise<Category[]>
   createCategory(name: string): Promise<Category>
   renameCategory(id: string, name: string): Promise<Category | null>
