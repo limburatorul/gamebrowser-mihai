@@ -6,6 +6,21 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.24.1',
+    changes: [
+      'Trainers now file themselves. Your trainers folder and, if you leave it enabled, your Downloads folder are watched — a trainer that appears there is matched and copied in within a few seconds, with no rescan and nothing to do by hand.',
+      'Anything that landed while the app was closed is picked up on the next start.'
+    ]
+  },
+  {
+    version: '1.24.0',
+    changes: [
+      'New: trainers are part of the library. Point Settings → Automation at the folder where you keep them and matching ones are copied into the app\'s own data folder, so they stay with the library and are included in backups.',
+      'New: a Trainer button next to Play launches the matching trainer. Games without one show Find Trainer instead, which opens the trainer site for that game in your browser.',
+      'Matching is deliberately strict about sequels — "Far Cry" will not be handed the Far Cry 5 trainer, and Watch Dogs will not get the Watch Dogs 2 one. Where several versions of the same trainer are kept, the newest file wins.'
+    ]
+  },
+  {
     version: '1.23.0',
     changes: [
       'New: how much space each game takes is now shown in the corner of its cover, and you can sort the library by it. The Dashboard adds the total on disk and — the useful part — the biggest games you have never played.',

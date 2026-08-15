@@ -27,6 +27,9 @@ interface Props {
   onMeasureDiskSizes: () => Promise<void>
   measuringSizes: boolean
   diskSizeProgress: ScanProgress | null
+  onPickTrainerFolder: () => Promise<string | null>
+  onScanTrainers: () => Promise<void>
+  scanningTrainers: boolean
 }
 
 type Tab = 'appearance' | 'backup' | 'automation'
@@ -73,7 +76,10 @@ export default function SettingsDialog({
   sweepingMetadata,
   onMeasureDiskSizes,
   measuringSizes,
-  diskSizeProgress
+  diskSizeProgress,
+  onPickTrainerFolder,
+  onScanTrainers,
+  scanningTrainers
 }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('appearance')
   const [clientId, setClientId] = useState(initial.igdbClientId)
@@ -84,6 +90,7 @@ export default function SettingsDialog({
   const [backupIntervalHours, setBackupIntervalHours] = useState(initial.backupIntervalHours)
   const [backupKeepCount, setBackupKeepCount] = useState(initial.backupKeepCount)
   const [librarySyncEnabled, setLibrarySyncEnabled] = useState(initial.librarySyncEnabled)
+  const [watchDownloadsForTrainers, setWatchDownloadsForTrainers] = useState(initial.watchDownloadsForTrainers)
   const [backups, setBackups] = useState<BackupEntry[]>([])
   const [backupsError, setBackupsError] = useState<string | null>(null)
   const [restoringPath, setRestoringPath] = useState<string | null>(null)
@@ -473,6 +480,51 @@ export default function SettingsDialog({
               {sweepingMetadata ? 'Checking…' : 'Check Now'}
             </button>
 
+            <h3 className="settings-section">Trainers</h3>
+            <div className="settings-slider-row">
+              <span className="settings-slider-label">Trainers folder</span>
+              <span className="backup-folder-path" title={initial.trainerFolder}>
+                {initial.trainerFolder || 'Not set'}
+              </span>
+              <button
+                className="btn"
+                type="button"
+                onClick={async () => {
+                  const picked = await onPickTrainerFolder()
+                  if (picked) void onScanTrainers()
+                }}
+              >
+                Choose Folder…
+              </button>
+            </div>
+            <div className="settings-slider-row">
+              <span className="settings-slider-label">Watch Downloads folder</span>
+              <input
+                type="checkbox"
+                checked={watchDownloadsForTrainers}
+                onChange={(e) => setWatchDownloadsForTrainers(e.target.checked)}
+              />
+            </div>
+
+            <p className="settings-note">
+              Point this at the folder where you keep your own trainer files. Matching ones are copied into the
+              app&apos;s data folder, so they stay with the library and are included in backups, and a Trainer button
+              appears next to Play instead of Find Trainer.
+            </p>
+            <p className="settings-note">
+              With the Downloads folder watched, a trainer you have just downloaded is picked up and filed on its own
+              within a few seconds — no rescan needed. Downloading itself is still a normal visit to the site: it
+              blocks automated requests, and the trainers are free because that traffic is what pays for them.
+            </p>
+            <button
+              className="btn"
+              type="button"
+              disabled={scanningTrainers || !initial.trainerFolder}
+              onClick={() => void onScanTrainers()}
+            >
+              {scanningTrainers ? 'Scanning…' : 'Rescan Trainers'}
+            </button>
+
             <h3 className="settings-section">Size on Disk</h3>
             <p className="settings-note">
               How much space each game takes is measured in the background and kept up to date weekly, which is what
@@ -585,6 +637,8 @@ export default function SettingsDialog({
                 backupEnabled,
                 backupIntervalHours,
                 backupKeepCount,
+                trainerFolder: initial.trainerFolder,
+                watchDownloadsForTrainers,
                 lastBackupAt: initial.lastBackupAt,
                 librarySyncEnabled
               })

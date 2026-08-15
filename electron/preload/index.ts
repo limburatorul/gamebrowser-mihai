@@ -54,6 +54,10 @@ const api: GameApi = {
   syncSteamPlaytimeNow: () => ipcRenderer.invoke('steam:syncPlaytime'),
   sweepMetadataNow: () => ipcRenderer.invoke('metadata:sweepNow'),
   measureDiskSizesNow: () => ipcRenderer.invoke('sizes:measureNow'),
+  pickTrainerFolder: () => ipcRenderer.invoke('trainers:pickFolder'),
+  scanTrainers: () => ipcRenderer.invoke('trainers:scan'),
+  launchTrainer: (id: string) => ipcRenderer.invoke('trainers:launch', id),
+  openTrainerSearch: (id: string) => ipcRenderer.invoke('trainers:openSearch', id),
   onDiskSizeProgress: (cb: (progress: ScanProgress | null) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, progress: ScanProgress | null): void => cb(progress)
     ipcRenderer.on('disk-size:progress', listener)

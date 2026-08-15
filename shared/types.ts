@@ -23,6 +23,8 @@ export interface Game {
   // slow to do inline while importing hundreds of them.
   installSizeBytes: number | null
   sizeMeasuredAt: string | null
+  /** Matched from the local trainer folder, never downloaded automatically. */
+  trainerPath: string | null
   steamAppId: number | null
   epicAppName: string | null
   gogProductId: string | null
@@ -68,6 +70,11 @@ export interface Settings {
   // How many archives to keep in the backup folder; older ones are deleted
   // after each successful backup. 0 means keep everything.
   backupKeepCount: number
+  /** Folder the user keeps trainers in. Nothing is ever written there. */
+  trainerFolder: string
+  /** Also watch the OS Downloads folder, so a freshly downloaded trainer is
+      filed away without the user going back to Settings to rescan. */
+  watchDownloadsForTrainers: boolean
   lastBackupAt: string | null
   librarySyncEnabled: boolean
 }
@@ -125,6 +132,15 @@ export interface ScreenshotSweepResult {
   noMatch: number
   rateLimited: boolean
   retryAfter: string | null
+}
+
+export interface TrainerScanResult {
+  folder: string
+  trainerFiles: number
+  matched: number
+  /** Trainer files that matched no game in the library. */
+  unmatchedFiles: number
+  error?: string
 }
 
 export interface DiskSizeSweepResult {
@@ -245,6 +261,10 @@ export interface GameApi {
   syncSteamPlaytimeNow(): Promise<SteamPlaytimeSyncResult>
   sweepMetadataNow(): Promise<MetadataSweepResult>
   measureDiskSizesNow(): Promise<DiskSizeSweepResult>
+  pickTrainerFolder(): Promise<string | null>
+  scanTrainers(): Promise<TrainerScanResult>
+  launchTrainer(id: string): Promise<{ ok: boolean; error?: string }>
+  openTrainerSearch(id: string): Promise<void>
   onDiskSizeProgress(cb: (progress: ScanProgress | null) => void): () => void
   getCategories(): Promise<Category[]>
   createCategory(name: string): Promise<Category>

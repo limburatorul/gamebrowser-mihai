@@ -67,6 +67,8 @@ export default function App(): JSX.Element {
     backupEnabled: false,
     backupIntervalHours: 24,
     backupKeepCount: 5,
+    trainerFolder: '',
+    watchDownloadsForTrainers: true,
     lastBackupAt: null,
     librarySyncEnabled: true
   })
@@ -96,6 +98,7 @@ export default function App(): JSX.Element {
   const [syncingPlaytime, setSyncingPlaytime] = useState(false)
   const [sweepingMetadata, setSweepingMetadata] = useState(false)
   const [measuringSizes, setMeasuringSizes] = useState(false)
+  const [scanningTrainers, setScanningTrainers] = useState(false)
   const [diskSizeProgress, setDiskSizeProgress] = useState<ScanProgress | null>(null)
   // Column count comes back from the grid, which is the only place that knows
   // how many tiles fit. Needed so Up/Down move by a whole row.
@@ -796,6 +799,45 @@ export default function App(): JSX.Element {
     void window.api.update(id, { favorite: !game.favorite })
   }
 
+  function handleLaunchTrainer(id: string): void {
+    void window.api.launchTrainer(id).then((r) => {
+      if (!r.ok) setInfoMessage({ title: 'Trainer', message: r.error ?? 'Could not start the trainer.' })
+    })
+  }
+
+  function handleFindTrainer(id: string): void {
+    void window.api.openTrainerSearch(id)
+  }
+
+  async function handleScanTrainers(): Promise<void> {
+    setScanningTrainers(true)
+    try {
+      const r = await window.api.scanTrainers()
+      if (r.error) {
+        setInfoMessage({ title: 'Trainers', message: r.error })
+        return
+      }
+      setInfoMessage({
+        title: 'Trainers',
+        message:
+          `Found ${r.trainerFiles} trainer files and matched ${r.matched} of your games. ` +
+          `${r.unmatchedFiles} files matched nothing in the library. ` +
+          `Matched trainers were copied into the app's data folder, so they are included in backups.`
+      })
+    } finally {
+      setScanningTrainers(false)
+    }
+  }
+
+  async function handlePickTrainerFolder(): Promise<string | null> {
+    const picked = await window.api.pickTrainerFolder()
+    if (picked) {
+      const s = await window.api.getSettings()
+      setSettings(s)
+    }
+    return picked
+  }
+
   function handleTogglePlaytimeIgnored(id: string): void {
     const game = games.find((g) => g.id === id)
     if (!game) return
@@ -1066,6 +1108,8 @@ export default function App(): JSX.Element {
           visible={detailsBarVisible}
           running={runningIds.has(lastSelectedGame.id)}
           onLaunch={handleLaunch}
+          onLaunchTrainer={handleLaunchTrainer}
+          onFindTrainer={handleFindTrainer}
           onToggleFavorite={handleToggleFavorite}
           onRate={handleRateGame}
           onEdit={handleEdit}
@@ -1151,6 +1195,9 @@ export default function App(): JSX.Element {
           onMeasureDiskSizes={handleMeasureDiskSizes}
           measuringSizes={measuringSizes}
           diskSizeProgress={diskSizeProgress}
+          onPickTrainerFolder={handlePickTrainerFolder}
+          onScanTrainers={handleScanTrainers}
+          scanningTrainers={scanningTrainers}
         />
       )}
       {aboutOpen && (
