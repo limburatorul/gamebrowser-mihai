@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.19.3',
+    changes: [
+      'Fix: backups failed with "Array buffer allocation failed" once the cached screenshots pushed the data folder past a couple of gigabytes — the whole archive was being assembled in memory before anything was written to disk. It is now written out as it goes, so the size of your library no longer matters. A 2.8 GB backup here now takes about 12 seconds and around 140 MB of memory.',
+      'Backups can now exceed 4 GB, which the old archive format could not represent at all.',
+      'Backups are noticeably faster: already-compressed files (your covers and screenshots) are no longer put through compression that could not shrink them anyway.',
+      'A backup that fails part-way now cleans up after itself instead of leaving a half-written file that looks like a usable backup.'
+    ]
+  },
+  {
     version: '1.19.2',
     changes: [
       'Fix: the game details panel on the right ran underneath the bar at the bottom of the window, so the last screenshots were partly hidden behind it with no way to scroll them clear. The panel now ends where the bar begins.',
