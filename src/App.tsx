@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   BackupPrefs,
   Category,
+  FolderScanResult,
+  TrainerFileInfo,
   Game,
   GameCandidate,
   LibrarySyncEvent,
@@ -67,7 +69,9 @@ export default function App(): JSX.Element {
     backupEnabled: false,
     backupIntervalHours: 24,
     backupKeepCount: 5,
+    scanRoots: [],
     trainerFolder: '',
+    trainerMirrorFolder: '',
     watchDownloadsForTrainers: true,
     lastBackupAt: null,
     librarySyncEnabled: true
@@ -99,6 +103,7 @@ export default function App(): JSX.Element {
   const [sweepingMetadata, setSweepingMetadata] = useState(false)
   const [measuringSizes, setMeasuringSizes] = useState(false)
   const [scanningTrainers, setScanningTrainers] = useState(false)
+  const [trainerFiles, setTrainerFiles] = useState<TrainerFileInfo[]>([])
   const [diskSizeProgress, setDiskSizeProgress] = useState<ScanProgress | null>(null)
   // Column count comes back from the grid, which is the only place that knows
   // how many tiles fit. Needed so Up/Down move by a whole row.
@@ -309,6 +314,7 @@ export default function App(): JSX.Element {
     if (filter === 'favorites') list = list.filter((g) => g.favorite)
     if (filter === 'recent') list = list.filter((g) => g.lastPlayed)
     if (filter === 'never-played') list = list.filter((g) => g.playtimeSeconds === 0)
+    if (filter === 'has-trainer') list = list.filter((g) => g.trainerPath)
     if (filter === 'no-cover') list = list.filter((g) => !g.coverPath)
     if (filter === 'steam') list = list.filter((g) => g.source === 'steam')
     if (filter === 'epic') list = list.filter((g) => g.source === 'epic')
@@ -353,6 +359,13 @@ export default function App(): JSX.Element {
   }, [visibleGames])
 
   const handleColumnsChange = useCallback((n: number) => setColumns(n), [])
+
+  // Only loaded while the Edit dialog is open - walking the trainer folders on
+  // every render would be wasteful, and the list only matters in there.
+  useEffect(() => {
+    if (editingId === null) return
+    void window.api.listTrainerFiles().then(setTrainerFiles)
+  }, [editingId])
 
   const selectedGame = useMemo(() => {
     if (selectedIds.size !== 1) return null
@@ -430,11 +443,41 @@ export default function App(): JSX.Element {
     }
   }
 
+  function reportScan(result: FolderScanResult, title: string): void {
+    if (result.candidates.length > 0) {
+      setCandidates(result.candidates)
+      return
+    }
+    if (result.scanned === 0 && result.skipped === 0) return
+    setInfoMessage({
+      title,
+      message:
+        `Nothing new. Looked at ${result.scanned} folder${result.scanned === 1 ? '' : 's'}` +
+        (result.skipped > 0 ? `, skipped ${result.skipped} already in your library.` : '.')
+    })
+  }
+
   async function handleScanFolder(): Promise<void> {
     setBusy(true)
     try {
-      const found = await window.api.scanFolder()
-      setCandidates(found)
+      reportScan(await window.api.scanFolder(), 'Scan Folder')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRescanFolders(): Promise<void> {
+    setBusy(true)
+    try {
+      const result = await window.api.rescanFolders()
+      if (result.roots.length === 0) {
+        setInfoMessage({
+          title: 'Rescan Folders',
+          message: 'No folders have been scanned yet — use Scan Folder once and they will be remembered.'
+        })
+        return
+      }
+      reportScan(result, 'Rescan Folders')
     } finally {
       setBusy(false)
     }
@@ -805,6 +848,16 @@ export default function App(): JSX.Element {
     })
   }
 
+  function handleLaunchWithTrainer(id: string): void {
+    void window.api.launchWithTrainer(id).then((r) => {
+      if (!r.ok) setInfoMessage({ title: 'Trainer', message: r.error ?? 'Could not start the trainer.' })
+    })
+  }
+
+  function handleOpenGameFolder(id: string): void {
+    void window.api.openGameFolder(id)
+  }
+
   function handleFindTrainer(id: string): void {
     void window.api.openTrainerSearch(id)
   }
@@ -831,10 +884,13 @@ export default function App(): JSX.Element {
 
   async function handlePickTrainerFolder(): Promise<string | null> {
     const picked = await window.api.pickTrainerFolder()
-    if (picked) {
-      const s = await window.api.getSettings()
-      setSettings(s)
-    }
+    if (picked) setSettings(await window.api.getSettings())
+    return picked
+  }
+
+  async function handlePickTrainerMirrorFolder(): Promise<string | null> {
+    const picked = await window.api.pickTrainerMirrorFolder()
+    if (picked) setSettings(await window.api.getSettings())
     return picked
   }
 
@@ -875,6 +931,8 @@ export default function App(): JSX.Element {
     rating: number | null
     categoryIds: string[]
     steamAppId: number | null
+    launchArgs: string
+    runAsAdmin: boolean
   }): Promise<void> {
     if (!editingId) return
     setSavingEdit(true)
@@ -884,6 +942,11 @@ export default function App(): JSX.Element {
     } finally {
       setSavingEdit(false)
     }
+  }
+
+  async function handleAssignTrainer(sourcePath: string | null): Promise<void> {
+    if (!editingId) return
+    await window.api.assignTrainer(editingId, sourcePath)
   }
 
   function handleChangeExePath(): void {
@@ -1032,6 +1095,7 @@ export default function App(): JSX.Element {
         onViewModeChange={setViewMode}
         onAddGame={handleAddGame}
         onScanFolder={handleScanFolder}
+        onRescanFolders={handleRescanFolders}
         onImportSteam={handleImportSteam}
         onImportEpic={handleImportEpic}
         onImportGog={handleImportGog}
@@ -1058,6 +1122,7 @@ export default function App(): JSX.Element {
           totalCount={games.length}
           favoriteCount={games.filter((g) => g.favorite).length}
           neverPlayedCount={games.filter((g) => g.playtimeSeconds === 0).length}
+          hasTrainerCount={games.filter((g) => g.trainerPath).length}
           noCoverCount={games.filter((g) => !g.coverPath).length}
           steamCount={games.filter((g) => g.source === 'steam').length}
           epicCount={games.filter((g) => g.source === 'epic').length}
@@ -1109,7 +1174,9 @@ export default function App(): JSX.Element {
           running={runningIds.has(lastSelectedGame.id)}
           onLaunch={handleLaunch}
           onLaunchTrainer={handleLaunchTrainer}
+          onLaunchWithTrainer={handleLaunchWithTrainer}
           onFindTrainer={handleFindTrainer}
+          onOpenFolder={handleOpenGameFolder}
           onToggleFavorite={handleToggleFavorite}
           onRate={handleRateGame}
           onEdit={handleEdit}
@@ -1196,6 +1263,7 @@ export default function App(): JSX.Element {
           measuringSizes={measuringSizes}
           diskSizeProgress={diskSizeProgress}
           onPickTrainerFolder={handlePickTrainerFolder}
+          onPickTrainerMirrorFolder={handlePickTrainerMirrorFolder}
           onScanTrainers={handleScanTrainers}
           scanningTrainers={scanningTrainers}
         />
@@ -1242,6 +1310,8 @@ export default function App(): JSX.Element {
           saving={savingEdit}
           onCancel={() => setEditingId(null)}
           onSave={handleSaveEdit}
+          trainerFiles={trainerFiles}
+          onAssignTrainer={handleAssignTrainer}
           onChangeExePath={handleChangeExePath}
           onBrowseCover={handleBrowseCoverInEdit}
           onSearchCover={handleSearchCoverInEdit}

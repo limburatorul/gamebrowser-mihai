@@ -9,6 +9,7 @@ export type LibraryFilter =
   | 'favorites'
   | 'recent'
   | 'never-played'
+  | 'has-trainer'
   | 'no-cover'
   | 'steam'
   | 'epic'
@@ -28,6 +29,7 @@ interface Props {
   totalCount: number
   favoriteCount: number
   neverPlayedCount: number
+  hasTrainerCount: number
   noCoverCount: number
   steamCount: number
   epicCount: number
@@ -47,6 +49,7 @@ const ITEMS: { key: LibraryFilter; label: string; icon: JSX.Element | string }[]
   { key: 'all', label: 'All Games', icon: '▦' },
   { key: 'recent', label: 'Recently Played', icon: '⏱' },
   { key: 'never-played', label: 'Never Played', icon: '◌' },
+  { key: 'has-trainer', label: 'Has Trainer', icon: '⚡' },
   { key: 'favorites', label: 'Favorites', icon: '★' },
   { key: 'no-cover', label: 'Missing Cover', icon: '🖼' },
   { key: 'steam', label: 'Steam', icon: <SteamIcon /> },
@@ -61,6 +64,7 @@ export default function Sidebar({
   totalCount,
   favoriteCount,
   neverPlayedCount,
+  hasTrainerCount,
   noCoverCount,
   steamCount,
   epicCount,
@@ -86,6 +90,7 @@ export default function Sidebar({
     if (key === 'all') return totalCount
     if (key === 'favorites') return favoriteCount
     if (key === 'never-played') return neverPlayedCount
+    if (key === 'has-trainer') return hasTrainerCount
     if (key === 'no-cover') return noCoverCount
     if (key === 'steam') return steamCount
     if (key === 'epic') return epicCount

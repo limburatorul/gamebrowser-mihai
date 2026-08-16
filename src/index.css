@@ -883,6 +883,15 @@ select {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
+.trainer-badge {
+  background: rgba(0, 0, 0, 0.62);
+  color: #ffd85e;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 3px;
+}
+
 .size-badge {
   background: rgba(0, 0, 0, 0.62);
   color: var(--text-0);
@@ -1020,6 +1029,33 @@ select {
   gap: 18px;
   color: var(--text-2);
   font-size: 13.5px;
+}
+
+/* Truncates on the left (direction: rtl) so the tail of the path stays
+   readable - "…\steamapps\common\Mafia Definitive Edition" tells you which
+   copy this is, while "W:\SteamLibrary\steam…" does not. The bidi isolate
+   keeps the leading drive letter from being reordered by the rtl context. */
+.details-path {
+  display: block;
+  max-width: 100%;
+  margin-top: 5px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: left;
+  direction: rtl;
+  unicode-bidi: isolate;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.details-path:hover {
+  color: var(--text-0);
+  text-decoration: underline;
 }
 
 .details-actions {
@@ -1691,6 +1727,66 @@ select {
   border-radius: 8px;
   padding: 6px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+}
+
+.dupe-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.dupe-group {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.dupe-name {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.dupe-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+/* Same left-truncation as the details bar: the tail of the path is what says
+   which copy this is. */
+.dupe-path {
+  flex: 1;
+  min-width: 0;
+  direction: rtl;
+  unicode-bidi: isolate;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dupe-size {
+  flex-shrink: 0;
+}
+
+.edit-trainer-select {
+  width: 100%;
+  max-width: 100%;
+}
+
+.import-menu-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.import-menu-icon {
+  width: 16px;
+  text-align: center;
+  opacity: 0.85;
 }
 
 .import-menu-item {

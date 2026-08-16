@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import type { Game } from '@shared/types'
+import { useEffect, useMemo, useState } from 'react'
+import type { DuplicateGroup, Game } from '@shared/types'
 import { formatPlaytime, formatSize } from '../lib/localFile'
 
 interface Props {
@@ -81,6 +81,15 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
       .slice(0, 6)
       .map(([genre, secs]) => ({ label: genre, value: secs, display: formatPlaytime(secs) }))
   }, [countedForPlaytime])
+
+  const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([])
+  useEffect(() => {
+    void window.api.getDuplicateGroups().then(setDuplicates)
+  }, [games])
+  const totalReclaimable = useMemo(
+    () => duplicates.reduce((sum, g) => sum + (g.reclaimableBytes ?? 0), 0),
+    [duplicates]
+  )
 
   const measured = useMemo(() => games.filter((g) => g.installSizeBytes !== null), [games])
   const totalSizeBytes = useMemo(() => measured.reduce((sum, g) => sum + (g.installSizeBytes ?? 0), 0), [measured])
@@ -175,6 +184,36 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
           <p className="settings-note">
             Sizes are still being measured in the background — it takes a while on a large library.
           </p>
+        )}
+
+        <h3 className="settings-section">Installed in More Than One Place</h3>
+        {duplicates.length > 0 ? (
+          <>
+            <p className="settings-note">
+              Same title, different folders. Nothing is removed automatically — the paths are here so you can decide
+              which copy to keep.
+              {totalReclaimable > 0 && ` Dropping the smaller copies would free about ${formatSize(totalReclaimable)}.`}
+            </p>
+            <ul className="dupe-list">
+              {duplicates.map((group) => (
+                <li key={group.name} className="dupe-group">
+                  <div className="dupe-name">{group.name}</div>
+                  {group.copies.map((copy) => (
+                    <div key={copy.id} className="dupe-copy">
+                      <span className="dupe-path" title={copy.installDir}>
+                        {copy.installDir}
+                      </span>
+                      <span className="dupe-size">
+                        {copy.source} · {copy.sizeBytes === null ? 'not measured' : formatSize(copy.sizeBytes)}
+                      </span>
+                    </div>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="settings-note">No game appears in two different folders.</p>
         )}
 
         <h3 className="settings-section">Biggest Never Played</h3>

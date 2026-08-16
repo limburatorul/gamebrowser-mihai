@@ -6,6 +6,45 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.28.0',
+    changes: [
+      'New: the Dashboard lists games installed in more than one place, with the full path and size of each copy, and how much space dropping the smaller ones would free. Nothing is deleted for you — the point is to let you decide which copy to keep.',
+      'New: launch options per game in the Edit dialog — command-line arguments and a run-as-administrator switch. Playtime is not measured for elevated launches, since the game then runs outside this app\'s reach.',
+      'New: a trainer can be picked by hand in the Edit dialog when automatic matching missed it or chose the wrong file.',
+      'New: matched trainers can also be copied to a second folder of your choosing, alongside the app\'s own copy.'
+    ]
+  },
+  {
+    version: '1.27.0',
+    changes: [
+      'Scanning a folder now skips the games it has already imported from it, instead of digging through every subfolder again to find the few new ones. On a folder holding 536 games it went from working through all of them to looking at 28 and finishing in under three seconds.',
+      'New: "Rescan Folders" in the Import menu re-checks every folder you have scanned before, without asking you to pick one again — the folders are remembered.',
+      'When a scan turns up nothing new, it now says so, along with how many folders it looked at and how many it skipped.'
+    ]
+  },
+  {
+    version: '1.26.0',
+    changes: [
+      'New: the bar at the bottom now shows where the game is installed, so when you have the same game twice — your own copy and the Steam one, or in two different places — you can tell which entry is which before deciding what to keep.',
+      'Clicking that path opens the folder in Explorer with the game\'s own executable highlighted. Long paths are shortened from the left, keeping the end visible, since that is the part that tells the copies apart.'
+    ]
+  },
+  {
+    version: '1.25.1',
+    changes: [
+      'Fix: newer Steam games could end up with screenshots but no cover and no genres. Steam has moved its artwork to addresses that cannot be guessed, so the old approach came back empty-handed even though the game was found — covers for those now come from the store page itself.',
+      "Fix: a game with no artwork available at all no longer loses its genres and its Steam link as well. The Steam ID is remembered from the first successful match, so later lookups don't have to search by name again."
+    ]
+  },
+  {
+    version: '1.25.0',
+    changes: [
+      'The window now remembers its size, position and whether it was maximised, and comes back the same way. It used to open at 1920×1080 in the default spot every single time. A position on a monitor that is no longer connected is ignored, so unplugging a screen cannot leave the window somewhere you cannot reach it.',
+      'New: "Play + Trainer" starts the trainer and then the game in one click, for games that have one.',
+      'New: a ⚡ mark on the cover of games with a trainer, and a "Has Trainer" filter in the sidebar.'
+    ]
+  },
+  {
     version: '1.24.1',
     changes: [
       'Trainers now file themselves. Your trainers folder and, if you leave it enabled, your Downloads folder are watched — a trainer that appears there is matched and copied in within a few seconds, with no rescan and nothing to do by hand.',

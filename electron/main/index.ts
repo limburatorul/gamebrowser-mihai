@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, shell, screen } from 'electron'
 import { join, dirname, basename, extname } from 'path'
 import { promises as fs, watch, type Dirent } from 'fs'
 import { randomUUID } from 'crypto'
@@ -22,8 +22,11 @@ import type {
   ScreenshotSweepResult,
   SteamPlaytimeSyncResult,
   MetadataSweepResult,
+  FolderScanResult,
   DiskSizeSweepResult,
-  TrainerScanResult
+  TrainerScanResult,
+  TrainerFileInfo,
+  DuplicateGroup
 } from '../../shared/types'
 import { createZip, extractZip } from './zip'
 import { writeFileAtomic, copyFileAtomic } from './fsAtomic'
@@ -72,6 +75,10 @@ const screenshotsDir = join(userDataPath, 'screenshots')
 // gets picked up by backups, instead of depending on wherever they were
 // originally downloaded still existing.
 const trainersDir = join(userDataPath, 'trainers')
+// Window geometry lives in its own file rather than settings.json: it changes
+// on every resize and drag, and settings.json holds things worth not rewriting
+// dozens of times a minute.
+const windowStateFile = join(userDataPath, 'window.json')
 const settingsFile = join(userDataPath, 'settings.json')
 const categoriesFile = join(userDataPath, 'categories.json')
 
@@ -88,7 +95,9 @@ let settings: Settings = {
   backupEnabled: false,
   backupIntervalHours: 24,
   backupKeepCount: 5,
+  scanRoots: [],
   trainerFolder: '',
+  trainerMirrorFolder: '',
   watchDownloadsForTrainers: true,
   lastBackupAt: null,
   librarySyncEnabled: true
@@ -109,6 +118,8 @@ async function loadLibrary(): Promise<void> {
       installSizeBytes: g.installSizeBytes ?? null,
       sizeMeasuredAt: g.sizeMeasuredAt ?? null,
       trainerPath: g.trainerPath ?? null,
+      launchArgs: g.launchArgs ?? '',
+      runAsAdmin: g.runAsAdmin ?? false,
       steamAppId: g.steamAppId ?? null,
       epicAppName: g.epicAppName ?? null,
       gogProductId: g.gogProductId ?? null,
@@ -389,12 +400,15 @@ interface SteamSearchItem {
 
 interface SteamMatch {
   appid: number
-  coverUrl: string
+  /** Null when Steam has the app but no usable image for it. */
+  coverUrl: string | null
 }
 
 // Steam's CDN doesn't have a single guaranteed image per app - some only
 // have header.jpg, not the taller library art. Tries the best option first.
 async function findSteamCoverUrl(appid: number, signal: AbortSignal): Promise<string | null> {
+  // Classic layout first: it's the only one carrying the tall 600x900 library
+  // art, which is what the grid actually wants.
   for (const variant of ['library_600x900_2x.jpg', 'library_600x900.jpg', 'header.jpg']) {
     const url = `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/${variant}`
     try {
@@ -404,7 +418,25 @@ async function findSteamCoverUrl(appid: number, signal: AbortSignal): Promise<st
       // try next variant
     }
   }
-  return null
+
+  // Newer apps aren't served from that path at all - their assets live under
+  // store_item_assets/… with a content hash in the URL, which can't be guessed.
+  // Verified on appid 4512570: every classic variant 404s, while the store API
+  // hands back a working header.jpg. Only header exists on the new path (the
+  // 600x900 variants 404 there too), so this is a wide cover rather than a
+  // tall one - still far better than the game having none at all.
+  try {
+    const res = await net.fetch(
+      `https://store.steampowered.com/api/appdetails?appids=${appid}&l=english`,
+      { signal }
+    )
+    if (!res.ok) return null
+    const data = (await res.json()) as Record<string, { success?: boolean; data?: { header_image?: string } }>
+    const header = data[String(appid)]?.data?.header_image
+    return typeof header === 'string' && header ? header : null
+  } catch {
+    return null
+  }
 }
 
 async function searchSteamMatch(name: string): Promise<SteamMatch | null> {
@@ -418,8 +450,10 @@ async function searchSteamMatch(name: string): Promise<SteamMatch | null> {
       const data = (await res.json()) as { items?: SteamSearchItem[] }
       const item = data.items?.[0]
       if (!item) return null
+      // A missing cover used to abort the whole match, which also threw away
+      // the genres and the resolved appid - so a game Steam knows perfectly
+      // well ended up with nothing at all. The appid is the valuable part.
       const coverUrl = await findSteamCoverUrl(item.id, signal)
-      if (!coverUrl) return null
       return { appid: item.id, coverUrl }
     })
   } catch {
@@ -681,7 +715,14 @@ async function fetchSteamMetadataForGame(game: Game, needsCover: boolean): Promi
   const match = await searchSteamMatch(game.name)
   if (!match) return false
   let changed = false
-  if (needsCover) {
+  // Remember the resolved appid even when there's no cover - it saves every
+  // later lookup (details panel, screenshots, genres) from name-searching
+  // again, and lets a cover be picked up once Steam has one.
+  if (game.steamAppId === null) {
+    game.steamAppId = match.appid
+    changed = true
+  }
+  if (needsCover && match.coverUrl) {
     const dest = join(coversDir, `${game.id}.jpg`)
     if (await downloadImage(match.coverUrl, dest)) {
       game.coverPath = dest
@@ -1273,6 +1314,8 @@ async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]
       installSizeBytes: null,
       sizeMeasuredAt: null,
       trainerPath: null,
+      launchArgs: '',
+      runAsAdmin: false,
       steamAppId: g.appId,
       epicAppName: null,
       gogProductId: null,
@@ -1328,6 +1371,8 @@ async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
       installSizeBytes: null,
       sizeMeasuredAt: null,
       trainerPath: null,
+      launchArgs: '',
+      runAsAdmin: false,
       steamAppId: null,
       epicAppName: m.appName,
       gogProductId: null,
@@ -1369,6 +1414,8 @@ async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
       installSizeBytes: null,
       sizeMeasuredAt: null,
       trainerPath: null,
+      launchArgs: '',
+      runAsAdmin: false,
       steamAppId: null,
       epicAppName: null,
       gogProductId: g.productId,
@@ -1450,6 +1497,8 @@ async function addNewUbisoftGames(installed: InstalledUbisoftGame[]): Promise<Ga
       installSizeBytes: null,
       sizeMeasuredAt: null,
       trainerPath: null,
+      launchArgs: '',
+      runAsAdmin: false,
       steamAppId: null,
       epicAppName: null,
       gogProductId: null,
@@ -1671,6 +1720,29 @@ async function syncSteamPlaytime(): Promise<SteamPlaytimeSyncResult> {
  * Nothing is fetched from the internet here - see the note on
  * `trainerSearchUrl`; the app opens the site in the user's browser instead.
  */
+/**
+ * Optional second home for a matched trainer. The copy in userData is the one
+ * the app uses and backs up; this is purely the user's own tidy collection, so
+ * a failure here never fails the scan.
+ */
+async function mirrorTrainerFile(sourcePath: string, fileName: string): Promise<void> {
+  const folder = settings.trainerMirrorFolder
+  if (!folder) return
+  try {
+    await fs.mkdir(folder, { recursive: true })
+    const dest = join(folder, fileName)
+    try {
+      const [src, existing] = await Promise.all([fs.stat(sourcePath), fs.stat(dest)])
+      if (src.size === existing.size) return
+    } catch {
+      // not there yet, or unreadable - copy below
+    }
+    await copyFileAtomic(sourcePath, dest)
+  } catch {
+    // mirror folder unwritable; the real copy in userData is unaffected
+  }
+}
+
 async function scanTrainers(): Promise<TrainerScanResult> {
   const folder = settings.trainerFolder
   const result: TrainerScanResult = { folder, trainerFiles: 0, matched: 0, unmatchedFiles: 0 }
@@ -1738,6 +1810,7 @@ async function scanTrainers(): Promise<TrainerScanResult> {
           game.trainerPath = dest
           changed = true
         }
+        await mirrorTrainerFile(dest, match.fileName)
         result.matched++
       } catch {
         // couldn't copy this one - leave the game without a trainer
@@ -1796,6 +1869,173 @@ function startTrainerWatchers(): void {
       // unreadable/nonexistent folder - skip it rather than fail startup
     }
   }
+}
+
+// Extracted from the games:launch handler so "Play with Trainer" can reuse it
+// rather than duplicating the playtime bookkeeping.
+async function launchGame(id: string): Promise<void> {
+  const game = games.find((g) => g.id === id)
+  if (!game || runningProcesses.has(id)) return
+
+  // Launching via a forked helper keeps the (potentially slow, AV-scanned)
+  // CreateProcess call for the game's own .exe off the main process's event
+  // loop, so the UI doesn't freeze while Windows starts the game.
+  // Elevated launches go through PowerShell's Start-Process -Verb RunAs, the
+  // only way to raise UAC from here. The cost is playtime: the elevated game
+  // isn't our child, so PowerShell returns immediately and there's nothing to
+  // wait on. The Edit dialog says so next to the checkbox.
+  if (game.runAsAdmin) {
+    const args = game.launchArgs.trim()
+    const psArgs = args ? `-ArgumentList ${JSON.stringify(args)} ` : ''
+    const command =
+      `Start-Process -FilePath ${JSON.stringify(game.exePath)} ` +
+      `-WorkingDirectory ${JSON.stringify(game.installDir)} ${psArgs}-Verb RunAs`
+    try {
+      await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command])
+    } catch {
+      // user declined the UAC prompt, or the exe is gone
+    }
+    game.lastPlayed = new Date().toISOString()
+    await saveLibrary()
+    broadcastLibrary()
+    return
+  }
+
+  const helper = fork(
+    join(__dirname, 'launcher-helper.js'),
+    [game.exePath, game.installDir, ...(game.launchArgs.trim() ? game.launchArgs.trim().split(/\s+/) : [])],
+    {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      stdio: 'ignore',
+      silent: true
+    }
+  )
+
+  runningProcesses.set(id, { child: helper, start: Date.now() })
+  broadcastRunning(id, true)
+  const finish = async (): Promise<void> => {
+    const info = runningProcesses.get(id)
+    runningProcesses.delete(id)
+    if (info) {
+      game.playtimeSeconds += Math.round((Date.now() - info.start) / 1000)
+    }
+    game.lastPlayed = new Date().toISOString()
+    await saveLibrary()
+    broadcastLibrary()
+    broadcastRunning(id, false)
+  }
+  helper.once('exit', () => void finish())
+  helper.once('error', () => void finish())
+}
+
+/**
+ * Games that look like the same title installed in more than one place.
+ *
+ * A *report* rather than an action: automatic merging was rejected because
+ * name matching got 1 of 7 pairs wrong, and both copies are usually real
+ * installs on disk. Reusing the trainer matcher's series-number guard keeps
+ * "Far Cry" and "Far Cry 5" apart, but the user still decides what goes.
+ */
+function findDuplicateGroups(): DuplicateGroup[] {
+  const normalize = (s: string): string => s.replace(/[^a-z0-9]/gi, '').toLowerCase()
+  const buckets = new Map<string, Game[]>()
+  for (const game of games) {
+    const key = normalize(game.name)
+    if (!key) continue
+    buckets.set(key, [...(buckets.get(key) ?? []), game])
+  }
+
+  const groups: DuplicateGroup[] = []
+  for (const copies of buckets.values()) {
+    if (copies.length < 2) continue
+    // Same folder twice isn't a duplicate install, just two entries.
+    const distinctDirs = new Set(copies.map((g) => g.installDir.replace(/[\\/]+$/, '').toLowerCase()))
+    if (distinctDirs.size < 2) continue
+
+    const sizes = copies.map((g) => g.installSizeBytes)
+    const allMeasured = sizes.every((s): s is number => s !== null)
+    groups.push({
+      name: copies[0].name,
+      copies: copies.map((g) => ({
+        id: g.id,
+        name: g.name,
+        installDir: g.installDir,
+        source: g.source,
+        sizeBytes: g.installSizeBytes
+      })),
+      // Keeping one copy: everything but the largest is recoverable.
+      reclaimableBytes: allMeasured
+        ? sizes.reduce((sum, s) => sum + s, 0) - Math.max(...(sizes as number[]))
+        : null
+    })
+  }
+  return groups.sort((a, b) => (b.reclaimableBytes ?? 0) - (a.reclaimableBytes ?? 0))
+}
+
+async function rememberScanRoot(root: string): Promise<void> {
+  const key = root.replace(/[\\/]+$/, '').toLowerCase()
+  if (settings.scanRoots.some((r) => r.replace(/[\\/]+$/, '').toLowerCase() === key)) return
+  settings = { ...settings, scanRoots: [...settings.scanRoots, root] }
+  await saveSettingsToDisk()
+}
+
+/**
+ * Walks the given roots, examining only subfolders that aren't already in the
+ * library.
+ *
+ * The old version ran findBestExe - itself a depth-5 recursive walk - on every
+ * subfolder of the root, every time. On a folder holding 500-odd already
+ * imported games that meant re-walking the entire drive to find the three new
+ * ones, which is exactly what it felt like. An installDir is a stable identity
+ * for a folder-scanned game, so anything already claimed is skipped outright.
+ */
+async function scanRoots(roots: string[]): Promise<FolderScanResult> {
+  const known = new Set(games.map((g) => g.installDir.replace(/[\\/]+$/, '').toLowerCase()))
+  const candidates: GameCandidate[] = []
+  let scanned = 0
+  let skipped = 0
+
+  try {
+    // Counted up front so the progress bar reflects the real amount of work
+    // rather than restarting per root.
+    const pending: { root: string; name: string; full: string }[] = []
+    for (const root of roots) {
+      const entries = await safeReaddir(root)
+      if (!entries) continue
+      for (const entry of entries.filter((e) => e.isDirectory())) {
+        const full = join(root, entry.name)
+        if (known.has(full.replace(/[\\/]+$/, '').toLowerCase())) {
+          skipped++
+          continue
+        }
+        pending.push({ root, name: entry.name, full })
+      }
+    }
+
+    for (let i = 0; i < pending.length; i++) {
+      const item = pending[i]
+      broadcastScanProgress({ current: i + 1, total: pending.length, currentName: item.name })
+      const exe = await findBestExe(item.full)
+      scanned++
+      if (exe) candidates.push({ name: cleanGameName(item.name), exePath: exe, installDir: item.full })
+    }
+
+    // A root that is itself a single game rather than a folder of games - only
+    // worth checking when it has no unclaimed subfolders to explain it.
+    if (candidates.length === 0 && pending.length === 0 && skipped === 0) {
+      for (const root of roots) {
+        if (known.has(root.replace(/[\\/]+$/, '').toLowerCase())) continue
+        broadcastScanProgress({ current: 1, total: 1, currentName: basename(root) })
+        const exe = await findBestExe(root)
+        scanned++
+        if (exe) candidates.push({ name: cleanGameName(basename(root)), exePath: exe, installDir: root })
+      }
+    }
+  } finally {
+    broadcastScanProgress(null)
+  }
+
+  return { candidates, scanned, skipped, roots: settings.scanRoots }
 }
 
 async function runBackup(): Promise<BackupResult> {
@@ -2004,6 +2244,8 @@ function registerIpcHandlers(): void {
       installSizeBytes: null,
       sizeMeasuredAt: null,
       trainerPath: null,
+      launchArgs: '',
+      runAsAdmin: false,
       steamAppId: null,
       epicAppName: null,
       gogProductId: null,
@@ -2016,37 +2258,20 @@ function registerIpcHandlers(): void {
     return game
   })
 
-  ipcMain.handle('games:scanFolder', async (): Promise<GameCandidate[]> => {
+  ipcMain.handle('games:scanFolder', async (): Promise<FolderScanResult> => {
     const result = await showOpenDialog({
       properties: ['openDirectory'],
       title: 'Select a folder containing your games'
     })
-    if (result.canceled || result.filePaths.length === 0) return []
-    const root = result.filePaths[0]
-    const entries = await safeReaddir(root)
-    if (!entries) return []
-    const subdirs = entries.filter((e) => e.isDirectory())
-    const candidates: GameCandidate[] = []
-    try {
-      if (subdirs.length > 0) {
-        for (let i = 0; i < subdirs.length; i++) {
-          const sub = subdirs[i]
-          broadcastScanProgress({ current: i + 1, total: subdirs.length, currentName: sub.name })
-          const full = join(root, sub.name)
-          const exe = await findBestExe(full)
-          if (exe) candidates.push({ name: cleanGameName(sub.name), exePath: exe, installDir: full })
-        }
-      }
-      if (candidates.length === 0) {
-        broadcastScanProgress({ current: 1, total: 1, currentName: basename(root) })
-        const exe = await findBestExe(root)
-        if (exe) candidates.push({ name: cleanGameName(basename(root)), exePath: exe, installDir: root })
-      }
-    } finally {
-      broadcastScanProgress(null)
+    if (result.canceled || result.filePaths.length === 0) {
+      return { candidates: [], scanned: 0, skipped: 0, roots: settings.scanRoots }
     }
-    return candidates
+    const root = result.filePaths[0]
+    await rememberScanRoot(root)
+    return scanRoots([root])
   })
+
+  ipcMain.handle('games:rescanFolders', async (): Promise<FolderScanResult> => scanRoots(settings.scanRoots))
 
   ipcMain.handle('games:importCandidates', async (_e, candidates: GameCandidate[]): Promise<Game[]> => {
     const created: Game[] = []
@@ -2073,6 +2298,8 @@ function registerIpcHandlers(): void {
         installSizeBytes: null,
         sizeMeasuredAt: null,
         trainerPath: null,
+        launchArgs: '',
+        runAsAdmin: false,
         steamAppId: null,
         epicAppName: null,
         gogProductId: null,
@@ -2141,35 +2368,7 @@ function registerIpcHandlers(): void {
     return { imported: created.length }
   })
 
-  ipcMain.handle('games:launch', async (_e, id: string) => {
-    const game = games.find((g) => g.id === id)
-    if (!game || runningProcesses.has(id)) return
-
-    // Launching via a forked helper keeps the (potentially slow, AV-scanned)
-    // CreateProcess call for the game's own .exe off the main process's event
-    // loop, so the UI doesn't freeze while Windows starts the game.
-    const helper = fork(join(__dirname, 'launcher-helper.js'), [game.exePath, game.installDir], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-      stdio: 'ignore',
-      silent: true
-    })
-
-    runningProcesses.set(id, { child: helper, start: Date.now() })
-    broadcastRunning(id, true)
-    const finish = async (): Promise<void> => {
-      const info = runningProcesses.get(id)
-      runningProcesses.delete(id)
-      if (info) {
-        game.playtimeSeconds += Math.round((Date.now() - info.start) / 1000)
-      }
-      game.lastPlayed = new Date().toISOString()
-      await saveLibrary()
-      broadcastLibrary()
-      broadcastRunning(id, false)
-    }
-    helper.once('exit', () => void finish())
-    helper.once('error', () => void finish())
-  })
+  ipcMain.handle('games:launch', async (_e, id: string) => launchGame(id))
 
   ipcMain.handle(
     'games:update',
@@ -2179,7 +2378,15 @@ function registerIpcHandlers(): void {
       patch: Partial<
         Pick<
           Game,
-          'name' | 'favorite' | 'tags' | 'rating' | 'categoryIds' | 'steamAppId' | 'excludeFromPlaytime'
+          | 'name'
+          | 'favorite'
+          | 'tags'
+          | 'rating'
+          | 'categoryIds'
+          | 'steamAppId'
+          | 'excludeFromPlaytime'
+          | 'launchArgs'
+          | 'runAsAdmin'
         >
       >
     ) => {
@@ -2392,6 +2599,20 @@ function registerIpcHandlers(): void {
     dataPath: userDataPath
   }))
 
+  // Reveals the game's own executable rather than just opening the folder, so
+  // with two copies of a game side by side it's obvious which one this entry
+  // actually points at.
+  ipcMain.handle('games:openFolder', async (_e, id: string): Promise<void> => {
+    const game = games.find((g) => g.id === id)
+    if (!game) return
+    try {
+      await fs.access(game.exePath)
+      shell.showItemInFolder(game.exePath)
+    } catch {
+      await shell.openPath(game.installDir)
+    }
+  })
+
   ipcMain.handle('app:openDataFolder', async () => {
     await shell.openPath(userDataPath)
   })
@@ -2442,7 +2663,61 @@ function registerIpcHandlers(): void {
     return settings.trainerFolder
   })
 
+  ipcMain.handle('trainers:pickMirrorFolder', async (): Promise<string | null> => {
+    const result = await showOpenDialog({
+      properties: ['openDirectory'],
+      title: 'Select a folder to also keep matched trainers in'
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    settings = { ...settings, trainerMirrorFolder: result.filePaths[0] }
+    await saveSettingsToDisk()
+    return settings.trainerMirrorFolder
+  })
+
   ipcMain.handle('trainers:scan', async (): Promise<TrainerScanResult> => scanTrainers())
+
+  ipcMain.handle('trainers:list', async (): Promise<TrainerFileInfo[]> => {
+    const assigned = new Set(
+      games.map((g) => g.trainerPath?.toLowerCase()).filter((p): p is string => typeof p === 'string')
+    )
+    const sources = [trainersDir, settings.trainerFolder].filter(Boolean)
+    const seen = new Set<string>()
+    const out: TrainerFileInfo[] = []
+    for (const source of sources) {
+      for (const t of await scanTrainerFolder(source)) {
+        const key = t.fileName.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push({ fileName: t.fileName, path: t.path, assigned: assigned.has(t.path.toLowerCase()) })
+      }
+    }
+    return out.sort((a, b) => a.fileName.localeCompare(b.fileName))
+  })
+
+  // Manual override for the 38-odd files whose names don't line up with any
+  // game, and for the cases where automatic matching picks the wrong one.
+  ipcMain.handle(
+    'trainers:assign',
+    async (_e, gameId: string, sourcePath: string | null): Promise<Game | null> => {
+      const game = games.find((g) => g.id === gameId)
+      if (!game) return null
+      if (sourcePath === null) {
+        game.trainerPath = null
+      } else {
+        await fs.mkdir(trainersDir, { recursive: true })
+        const fileName = basename(sourcePath)
+        const dest = join(trainersDir, fileName)
+        if (sourcePath.toLowerCase() !== dest.toLowerCase()) await copyFileAtomic(sourcePath, dest)
+        await mirrorTrainerFile(dest, fileName)
+        game.trainerPath = dest
+      }
+      await saveLibrary()
+      broadcastLibrary()
+      return game
+    }
+  )
+
+  ipcMain.handle('games:duplicates', async (): Promise<DuplicateGroup[]> => findDuplicateGroups())
 
   ipcMain.handle('trainers:launch', async (_e, id: string): Promise<{ ok: boolean; error?: string }> => {
     const game = games.find((g) => g.id === id)
@@ -2451,6 +2726,21 @@ function registerIpcHandlers(): void {
     // this lets Windows put up its own prompt instead of failing silently.
     const error = await shell.openPath(game.trainerPath)
     return error ? { ok: false, error } : { ok: true }
+  })
+
+  // Starts the trainer first, then the game. FLiNG trainers attach to the
+  // running process and poll for it, so having it up first means it hooks as
+  // soon as the game appears rather than needing a manual re-scan.
+  ipcMain.handle('trainers:launchWithGame', async (_e, id: string): Promise<{ ok: boolean; error?: string }> => {
+    const game = games.find((g) => g.id === id)
+    if (!game) return { ok: false, error: 'Game not found.' }
+    if (game.trainerPath) {
+      const error = await shell.openPath(game.trainerPath)
+      if (error) return { ok: false, error }
+      await new Promise((r) => setTimeout(r, 1200))
+    }
+    await launchGame(id)
+    return { ok: true }
   })
 
   ipcMain.handle('trainers:openSearch', async (_e, id: string): Promise<void> => {
@@ -2565,10 +2855,89 @@ function registerIpcHandlers(): void {
   )
 }
 
-function createWindow(): void {
+interface WindowState {
+  width: number
+  height: number
+  x: number | null
+  y: number | null
+  maximized: boolean
+}
+
+async function loadWindowState(): Promise<WindowState | null> {
+  try {
+    const raw = await fs.readFile(windowStateFile, 'utf-8')
+    const parsed = JSON.parse(raw) as Partial<WindowState>
+    if (!Number.isFinite(parsed.width) || !Number.isFinite(parsed.height)) return null
+    return {
+      width: Math.max(1500, Math.round(parsed.width as number)),
+      height: Math.max(640, Math.round(parsed.height as number)),
+      x: Number.isFinite(parsed.x) ? Math.round(parsed.x as number) : null,
+      y: Number.isFinite(parsed.y) ? Math.round(parsed.y as number) : null,
+      maximized: !!parsed.maximized
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A saved position is only usable if it still lands on a display that exists -
+ * otherwise unplugging the monitor it was last on reopens the window somewhere
+ * invisible, with no obvious way to get it back.
+ */
+function positionIsOnSomeDisplay(x: number, y: number, width: number, height: number): boolean {
+  return screen.getAllDisplays().some((display) => {
+    const b = display.workArea
+    // Require a decent chunk of the titlebar to be reachable, not just a pixel.
+    return x + width > b.x + 80 && x < b.x + b.width - 80 && y >= b.y - 8 && y < b.y + b.height - 40
+  })
+}
+
+function trackWindowState(win: BrowserWindow): void {
+  let timer: NodeJS.Timeout | null = null
+  const save = (): void => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      if (win.isDestroyed()) return
+      const maximized = win.isMaximized()
+      // getNormalBounds is the un-maximized geometry, which is what should be
+      // restored when the user un-maximizes later.
+      const bounds = win.getNormalBounds()
+      const state: WindowState = {
+        width: bounds.width,
+        height: bounds.height,
+        x: bounds.x,
+        y: bounds.y,
+        maximized
+      }
+      void fs.writeFile(windowStateFile, JSON.stringify(state, null, 2), 'utf-8').catch(() => undefined)
+    }, 500)
+  }
+  // Registered one by one rather than looping a union of event names, which
+  // doesn't line up with BrowserWindow's per-event overloads.
+  win.on('resize', save)
+  win.on('move', save)
+  win.on('maximize', save)
+  win.on('unmaximize', save)
+  win.on('close', save)
+}
+
+function createWindow(saved: WindowState | null): void {
+  // A saved position only survives if the display it referred to still exists,
+  // otherwise unplugging a monitor reopens the window off-screen.
+  const usePosition =
+    saved?.x !== null &&
+    saved?.y !== undefined &&
+    saved !== null &&
+    saved.x !== null &&
+    saved.y !== null &&
+    positionIsOnSomeDisplay(saved.x, saved.y, saved.width, saved.height)
+
   const win = new BrowserWindow({
-    width: 1920,
-    height: 1080,
+    width: saved?.width ?? 1920,
+    height: saved?.height ?? 1080,
+    ...(usePosition && saved ? { x: saved.x as number, y: saved.y as number } : {}),
     // Measured live over CDP, not estimated: shrinking the viewport until
     // anything in the topbar clips puts the real floor at 1444px of viewport
     // (1460px of window, +16px chrome) in the worst case - both the genre and
@@ -2592,6 +2961,9 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+
+  if (saved?.maximized) win.maximize()
+  trackWindowState(win)
 
   win.on('ready-to-show', () => win.show())
 
@@ -2628,7 +3000,7 @@ if (gotSingleInstanceLock) {
 
     Menu.setApplicationMenu(null)
     registerIpcHandlers()
-    createWindow()
+    createWindow(await loadWindowState())
     void repairIgnoredExePaths()
     // Playtime sync runs after the library sync so games imported on this
     // launch already exist (and carry a steamAppId) by the time it looks.
@@ -2682,7 +3054,7 @@ if (gotSingleInstanceLock) {
     setInterval(() => void sweepDiskSizes(), METADATA_SWEEP_INTERVAL_MS)
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (BrowserWindow.getAllWindows().length === 0) void loadWindowState().then(createWindow)
     })
   })
 

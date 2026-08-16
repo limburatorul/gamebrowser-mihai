@@ -11,6 +11,7 @@ interface Props {
   onViewModeChange: (v: ViewMode) => void
   onAddGame: () => void
   onScanFolder: () => void
+  onRescanFolders: () => void
   onImportSteam: () => void
   onImportEpic: () => void
   onImportGog: () => void
@@ -40,6 +41,7 @@ export default function TopBar({
   onViewModeChange,
   onAddGame,
   onScanFolder,
+  onRescanFolders,
   onImportSteam,
   onImportEpic,
   onImportGog,
@@ -98,6 +100,15 @@ export default function TopBar({
                 <button className="import-menu-item" onClick={() => runImport(onImportUbisoft)}>
                   <UbisoftIcon />
                   <span>Ubisoft Connect</span>
+                </button>
+                <div className="import-menu-separator" />
+                <button
+                  className="import-menu-item"
+                  title="Re-check the folders you have scanned before, looking only at what isn't in the library yet"
+                  onClick={() => runImport(onRescanFolders)}
+                >
+                  <span className="import-menu-icon">⟳</span>
+                  <span>Rescan Folders</span>
                 </button>
               </div>
             </>

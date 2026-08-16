@@ -28,6 +28,7 @@ interface Props {
   measuringSizes: boolean
   diskSizeProgress: ScanProgress | null
   onPickTrainerFolder: () => Promise<string | null>
+  onPickTrainerMirrorFolder: () => Promise<string | null>
   onScanTrainers: () => Promise<void>
   scanningTrainers: boolean
 }
@@ -78,6 +79,7 @@ export default function SettingsDialog({
   measuringSizes,
   diskSizeProgress,
   onPickTrainerFolder,
+  onPickTrainerMirrorFolder,
   onScanTrainers,
   scanningTrainers
 }: Props): JSX.Element {
@@ -498,6 +500,23 @@ export default function SettingsDialog({
               </button>
             </div>
             <div className="settings-slider-row">
+              <span className="settings-slider-label">Also copy to</span>
+              <span className="backup-folder-path" title={initial.trainerMirrorFolder}>
+                {initial.trainerMirrorFolder || 'Not set'}
+              </span>
+              <button
+                className="btn"
+                type="button"
+                onClick={async () => {
+                  const picked = await onPickTrainerMirrorFolder()
+                  if (picked) void onScanTrainers()
+                }}
+              >
+                Choose Folder…
+              </button>
+            </div>
+
+            <div className="settings-slider-row">
               <span className="settings-slider-label">Watch Downloads folder</span>
               <input
                 type="checkbox"
@@ -637,7 +656,9 @@ export default function SettingsDialog({
                 backupEnabled,
                 backupIntervalHours,
                 backupKeepCount,
+                scanRoots: initial.scanRoots,
                 trainerFolder: initial.trainerFolder,
+                trainerMirrorFolder: initial.trainerMirrorFolder,
                 watchDownloadsForTrainers,
                 lastBackupAt: initial.lastBackupAt,
                 librarySyncEnabled

@@ -22,8 +22,10 @@ const api: GameApi = {
   getAll: () => ipcRenderer.invoke('games:getAll'),
   getAppInfo: () => ipcRenderer.invoke('app:getInfo'),
   openDataFolder: () => ipcRenderer.invoke('app:openDataFolder'),
+  openGameFolder: (id: string) => ipcRenderer.invoke('games:openFolder', id),
   addManual: () => ipcRenderer.invoke('games:addManual'),
   scanFolder: () => ipcRenderer.invoke('games:scanFolder'),
+  rescanFolders: () => ipcRenderer.invoke('games:rescanFolders'),
   onScanProgress: (cb: (progress: ScanProgress | null) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, progress: ScanProgress | null): void => cb(progress)
     ipcRenderer.on('scan:progress', listener)
@@ -55,8 +57,14 @@ const api: GameApi = {
   sweepMetadataNow: () => ipcRenderer.invoke('metadata:sweepNow'),
   measureDiskSizesNow: () => ipcRenderer.invoke('sizes:measureNow'),
   pickTrainerFolder: () => ipcRenderer.invoke('trainers:pickFolder'),
+  pickTrainerMirrorFolder: () => ipcRenderer.invoke('trainers:pickMirrorFolder'),
+  listTrainerFiles: () => ipcRenderer.invoke('trainers:list'),
+  assignTrainer: (gameId: string, sourcePath: string | null) =>
+    ipcRenderer.invoke('trainers:assign', gameId, sourcePath),
+  getDuplicateGroups: () => ipcRenderer.invoke('games:duplicates'),
   scanTrainers: () => ipcRenderer.invoke('trainers:scan'),
   launchTrainer: (id: string) => ipcRenderer.invoke('trainers:launch', id),
+  launchWithTrainer: (id: string) => ipcRenderer.invoke('trainers:launchWithGame', id),
   openTrainerSearch: (id: string) => ipcRenderer.invoke('trainers:openSearch', id),
   onDiskSizeProgress: (cb: (progress: ScanProgress | null) => void) => {
     const listener = (_e: Electron.IpcRendererEvent, progress: ScanProgress | null): void => cb(progress)

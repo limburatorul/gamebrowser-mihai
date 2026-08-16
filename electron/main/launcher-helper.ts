@@ -1,10 +1,12 @@
 import { spawn } from 'child_process'
 
-const [exePath, cwd] = process.argv.slice(2)
+// Anything after the exe and working directory is the game's own arguments,
+// set per-game in the Edit dialog.
+const [exePath, cwd, ...args] = process.argv.slice(2)
 
 let child: ReturnType<typeof spawn>
 try {
-  child = spawn(exePath, [], { cwd, detached: true, stdio: 'ignore' })
+  child = spawn(exePath, args, { cwd, detached: true, stdio: 'ignore' })
 } catch {
   process.exit(1)
 }

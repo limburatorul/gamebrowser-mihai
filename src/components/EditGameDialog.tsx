@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Category, Game } from '@shared/types'
+import type { Category, Game, TrainerFileInfo } from '@shared/types'
 import CoverImage from './CoverImage'
 import StarRating from './StarRating'
 
@@ -14,7 +14,11 @@ interface Props {
     rating: number | null
     categoryIds: string[]
     steamAppId: number | null
+    launchArgs: string
+    runAsAdmin: boolean
   }) => void
+  trainerFiles: TrainerFileInfo[]
+  onAssignTrainer: (sourcePath: string | null) => Promise<void>
   onChangeExePath: () => void
   onBrowseCover: () => void
   onSearchCover: () => Promise<boolean>
@@ -43,6 +47,8 @@ export default function EditGameDialog({
   categories,
   onCancel,
   onSave,
+  trainerFiles,
+  onAssignTrainer,
   onChangeExePath,
   onBrowseCover,
   onSearchCover,
@@ -54,6 +60,9 @@ export default function EditGameDialog({
   const [rating, setRating] = useState(game.rating)
   const [categoryIds, setCategoryIds] = useState<string[]>(game.categoryIds)
   const [steamAppIdText, setSteamAppIdText] = useState(game.steamAppId !== null ? String(game.steamAppId) : '')
+  const [launchArgs, setLaunchArgs] = useState(game.launchArgs)
+  const [runAsAdmin, setRunAsAdmin] = useState(game.runAsAdmin)
+  const [assigningTrainer, setAssigningTrainer] = useState(false)
   const [searchingCover, setSearchingCover] = useState(false)
   const [coverSearchMessage, setCoverSearchMessage] = useState<string | null>(null)
 
@@ -69,7 +78,9 @@ export default function EditGameDialog({
       tags: parseTags(tagsText),
       rating,
       categoryIds,
-      steamAppId: parseSteamAppId(steamAppIdText)
+      steamAppId: parseSteamAppId(steamAppIdText),
+      launchArgs: launchArgs.trim(),
+      runAsAdmin
     })
   }
 
@@ -140,6 +151,56 @@ export default function EditGameDialog({
         <p className="settings-note">
           Overrides the cover/genres with this exact Steam store page, regardless of the detected name — useful
           when auto-matching picked the wrong game.
+        </p>
+
+        <label className="settings-label">Launch options</label>
+        <input
+          className="search-input"
+          value={launchArgs}
+          onChange={(e) => setLaunchArgs(e.target.value)}
+          placeholder="Command-line arguments, e.g. -windowed -novid"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && name.trim()) save()
+            if (e.key === 'Escape') onCancel()
+          }}
+        />
+        <div className="settings-slider-row">
+          <span className="settings-slider-label">Run as administrator</span>
+          <input type="checkbox" checked={runAsAdmin} onChange={(e) => setRunAsAdmin(e.target.checked)} />
+        </div>
+        <p className="settings-note">
+          Elevating goes through Windows&apos; own UAC prompt. Playtime can&apos;t be measured for an elevated
+          launch — the game runs outside this app&apos;s reach, so there is nothing to time.
+        </p>
+
+        <label className="settings-label">Trainer</label>
+        <select
+          className="select edit-trainer-select"
+          disabled={assigningTrainer}
+          value={game.trainerPath ?? ''}
+          onChange={async (e) => {
+            setAssigningTrainer(true)
+            try {
+              await onAssignTrainer(e.target.value || null)
+            } finally {
+              setAssigningTrainer(false)
+            }
+          }}
+        >
+          <option value="">No trainer</option>
+          {game.trainerPath && !trainerFiles.some((t) => t.path === game.trainerPath) && (
+            <option value={game.trainerPath}>{game.trainerPath.split('\\').pop()}</option>
+          )}
+          {trainerFiles.map((t) => (
+            <option key={t.path} value={t.path}>
+              {t.fileName}
+              {t.assigned && t.path !== game.trainerPath ? '  (used by another game)' : ''}
+            </option>
+          ))}
+        </select>
+        <p className="settings-note">
+          Pick one by hand when the automatic match missed it — it is copied into the app&apos;s trainer folder and
+          takes effect straight away, without waiting for Save.
         </p>
 
         <label className="settings-label">Tags</label>

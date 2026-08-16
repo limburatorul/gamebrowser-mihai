@@ -182,6 +182,11 @@ function GameTile({
         {/* Grouped so the size pill and the favourite star can share the top
             right corner without one needing to know the other's width. */}
         <div className="tile-badges-top">
+          {game.trainerPath && (
+            <span className="trainer-badge" title="A trainer is available for this game">
+              ⚡
+            </span>
+          )}
           {game.favorite && <span className="favorite-badge">★</span>}
           {game.installSizeBytes !== null && (
             <span className="size-badge" title="Size on disk">
