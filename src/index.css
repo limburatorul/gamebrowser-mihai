@@ -871,9 +871,14 @@ select {
   overflow: hidden;
 }
 
+/* position: relative and NOT z-index. Being positioned is enough to paint
+   above .cover-fill, which precedes it in the DOM. A z-index here promoted the
+   photo into the tile's stacking context - .cover-frame is position: relative
+   with z-index: auto, so it isn't one itself - and the image then covered the
+   size/trainer badges and the hover play button, which are all z-index: auto
+   siblings after it. */
 .cover-photo {
   position: relative;
-  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -917,8 +922,11 @@ select {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* Everything that sits over the artwork carries an explicit z-index, so the
+   ordering no longer depends on nothing inside the cover frame claiming one. */
 .tile-play-btn {
   position: absolute;
+  z-index: 2;
   right: 8px;
   bottom: 8px;
   width: 42px;
@@ -975,6 +983,7 @@ select {
 
 .running-badge {
   position: absolute;
+  z-index: 2;
   top: 6px;
   left: 6px;
   background: #2eb872;
@@ -997,6 +1006,7 @@ select {
    "175 GB" are not the same size. */
 .tile-badges-top {
   position: absolute;
+  z-index: 2;
   top: 6px;
   right: 6px;
   display: flex;
@@ -1032,6 +1042,7 @@ select {
 
 .rating-badge {
   position: absolute;
+  z-index: 2;
   bottom: 6px;
   left: 6px;
   display: flex;
@@ -1730,11 +1741,15 @@ select {
   font-size: 13px;
 }
 
+/* Fork only. Three lines now, so it needs its own line-height and centring
+   rather than inheriting the single-line credit's spacing above it. */
 .about-dedication {
   margin: 0 0 14px;
   color: var(--accent);
   font-size: 13px;
   font-style: italic;
+  line-height: 1.55;
+  text-align: center;
 }
 
 .dashboard-modal {

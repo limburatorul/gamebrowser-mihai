@@ -6,6 +6,12 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.30.1',
+    changes: [
+      'Fixed: the size and trainer markings on a cover, and the play button on hover, could be hidden behind the cover art itself — most reliably after resizing the window. Introduced by the cover work in 1.30.0.'
+    ]
+  },
+  {
     version: '1.30.0',
     changes: [
       'Covers that are not the shape of the tile — the wide artwork Steam uses for newer games, or the game icon when no cover was found — are no longer cropped down to a sliver or blown up blurry. They now sit whole against a blurred copy of themselves, so the grid looks even.',

@@ -36,7 +36,13 @@ export default function AboutDialog({
         <p className="about-credit">
           Made by <strong>The Protagonist</strong> · 2026
         </p>
-        <p className="about-dedication">for Mihai 🫡</p>
+        <p className="about-dedication">
+          For Mihai
+          <br />
+          With love
+          <br />
+          Lord Dred 🫡
+        </p>
 
         <div className="about-stats">
           <div className="about-stat">
