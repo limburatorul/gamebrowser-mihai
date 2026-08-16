@@ -116,6 +116,7 @@ async function loadLibrary(): Promise<void> {
       rating: g.rating ?? null,
       categoryIds: g.categoryIds ?? [],
       excludeFromPlaytime: g.excludeFromPlaytime ?? false,
+      hidden: g.hidden ?? false,
       installSizeBytes: g.installSizeBytes ?? null,
       sizeMeasuredAt: g.sizeMeasuredAt ?? null,
       trainerPath: g.trainerPath ?? null,
@@ -1329,6 +1330,7 @@ async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]
       rating: null,
       categoryIds: [],
       excludeFromPlaytime: false,
+      hidden: false,
       installSizeBytes: null,
       sizeMeasuredAt: null,
       trainerPath: null,
@@ -1386,6 +1388,7 @@ async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
       rating: null,
       categoryIds: [],
       excludeFromPlaytime: false,
+      hidden: false,
       installSizeBytes: null,
       sizeMeasuredAt: null,
       trainerPath: null,
@@ -1429,6 +1432,7 @@ async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
       rating: null,
       categoryIds: [],
       excludeFromPlaytime: false,
+      hidden: false,
       installSizeBytes: null,
       sizeMeasuredAt: null,
       trainerPath: null,
@@ -1512,6 +1516,7 @@ async function addNewUbisoftGames(installed: InstalledUbisoftGame[]): Promise<Ga
       rating: null,
       categoryIds: [],
       excludeFromPlaytime: false,
+      hidden: false,
       installSizeBytes: null,
       sizeMeasuredAt: null,
       trainerPath: null,
@@ -2468,6 +2473,7 @@ function registerIpcHandlers(): void {
       rating: null,
       categoryIds: [],
       excludeFromPlaytime: false,
+      hidden: false,
       installSizeBytes: null,
       sizeMeasuredAt: null,
       trainerPath: null,
@@ -2522,6 +2528,7 @@ function registerIpcHandlers(): void {
         rating: null,
         categoryIds: [],
         excludeFromPlaytime: false,
+        hidden: false,
         installSizeBytes: null,
         sizeMeasuredAt: null,
         trainerPath: null,
@@ -2612,6 +2619,7 @@ function registerIpcHandlers(): void {
           | 'categoryIds'
           | 'steamAppId'
           | 'excludeFromPlaytime'
+          | 'hidden'
           | 'launchArgs'
           | 'runAsAdmin'
         >

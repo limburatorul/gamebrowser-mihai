@@ -27,6 +27,16 @@ const GRID_GAP = 16
 // .game-tile-playtime font sizes, or rows start overlapping each other.
 const TILE_TITLE_AREA = 56
 const LIST_ROW_HEIGHT = 64
+// Sits in normal flow above the virtualised rows and sticks to the top of the
+// scroll box. The virtualiser is told about it via scrollMargin, or its idea
+// of which rows are on screen (and where scrollToIndex lands) is off by this
+// much.
+const LIST_HEADER_HEIGHT = 34
+// .game-scroll's padding-top, which exists so content passes under the
+// translucent topbar. The virtualiser measures from the top of the scroll
+// box, so it has to be told about it or scrollToIndex parks the selected row
+// behind the topbar. Must match index.css.
+const TOP_INSET = 68
 
 export default function GameGrid({
   games,
@@ -60,11 +70,14 @@ export default function GameGrid({
   const rowHeight =
     viewMode === 'grid' ? Math.round(tileWidth * 1.4) + TILE_TITLE_AREA + GRID_GAP : LIST_ROW_HEIGHT
 
+  const scrollMargin = TOP_INSET + (viewMode === 'list' ? LIST_HEADER_HEIGHT : 0)
+
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowHeight,
-    overscan: 6
+    overscan: 6,
+    scrollMargin
   })
 
   const virtualRows = rowVirtualizer.getVirtualItems()
@@ -101,11 +114,25 @@ export default function GameGrid({
           <p className="empty-state-sub">Add a game manually or scan a folder to get started.</p>
         </div>
       ) : (
-        <div
-          key={resultKey}
-          className="game-results"
-          style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}
-        >
+        <>
+          {/* Reuses the rows' own column classes, so the widths line up by
+              construction and the responsive rules that drop columns on a
+              narrow window apply to both at once. */}
+          {viewMode === 'list' && (
+            <div className="list-header" style={{ height: LIST_HEADER_HEIGHT }}>
+              <span className="list-row-cover" />
+              <span className="list-row-name">Name</span>
+              <span className="list-row-genres">Genres</span>
+              <span className="list-row-size">Size</span>
+              <span className="list-row-date">Last played</span>
+              <span className="list-row-playtime">Playtime</span>
+            </div>
+          )}
+          <div
+            key={resultKey}
+            className="game-results"
+            style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}
+          >
           {virtualRows.map((virtualRow) => {
             if (viewMode === 'list') {
               const game = games[virtualRow.index]
@@ -113,7 +140,10 @@ export default function GameGrid({
                 <ListRow
                   key={game.id}
                   game={game}
-                  top={virtualRow.start}
+                  // start is measured from the scroll box, which includes the
+                  // sticky header; rows are placed inside the container that
+                  // begins below it.
+                  top={virtualRow.start - scrollMargin}
                   selected={selectedIds.has(game.id)}
                   running={runningIds.has(game.id)}
                   onItemClick={onItemClick}
@@ -134,7 +164,7 @@ export default function GameGrid({
                   left: 0,
                   width: '100%',
                   height: virtualRow.size,
-                  transform: `translateY(${virtualRow.start}px)`,
+                  transform: `translateY(${virtualRow.start - scrollMargin}px)`,
                   gap: GRID_GAP
                 }}
               >
@@ -153,7 +183,8 @@ export default function GameGrid({
               </div>
             )
           })}
-        </div>
+          </div>
+        </>
       )}
     </div>
   )
@@ -264,6 +295,29 @@ function ListRow({
     >
       <div className="list-row-cover">
         <CoverImage game={game} className="cover-img" />
+        {/* The grid puts a play button on the cover at hover; without one here
+            the two view modes behaved differently for no reason. */}
+        {!running && (
+          <button
+            className="list-play-btn"
+            title="Play"
+            onClick={(e) => {
+              e.stopPropagation()
+              onLaunch(game.id)
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+              <polygon
+                points="7.2,6 17.8,12 7.2,18"
+                fill="currentColor"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        )}
       </div>
       <div className="list-row-name">
         {game.name}

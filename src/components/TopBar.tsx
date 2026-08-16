@@ -5,6 +5,8 @@ import { SteamIcon, EpicIcon, GogIcon, UbisoftIcon } from './icons/PlatformIcons
 interface Props {
   search: string
   onSearchChange: (v: string) => void
+  /** So typing anywhere in the window can hand focus to the search box. */
+  searchRef?: React.RefObject<HTMLInputElement>
   sortKey: SortKey
   onSortChange: (v: SortKey) => void
   viewMode: ViewMode
@@ -35,6 +37,7 @@ interface Props {
 export default function TopBar({
   search,
   onSearchChange,
+  searchRef,
   sortKey,
   onSortChange,
   viewMode,
@@ -136,6 +139,7 @@ export default function TopBar({
           topbar's layout (and its measured minimum width) is unchanged. */}
       <div className="search-wrap">
         <input
+          ref={searchRef}
           className="search-input"
           type="text"
           placeholder="Search library..."

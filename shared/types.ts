@@ -18,6 +18,11 @@ export interface Game {
   // the sidebar's most-played list, the library total, and the dashboard.
   // Toggling it back off restores the untouched number.
   excludeFromPlaytime: boolean
+  /** Kept in the library but out of sight: no tile or row, no sidebar count,
+      no most-played entry, and never picked for the rotating backdrop. The
+      Dashboard still counts it, since hiding a game doesn't free its disk
+      space. Managed from Settings > Hidden Games. */
+  hidden: boolean
   // Size of installDir on disk. Filled in by a background sweep rather than at
   // import time - walking a game folder takes about a second, which is far too
   // slow to do inline while importing hundreds of them.
@@ -308,6 +313,7 @@ export interface GameApi {
         | 'categoryIds'
         | 'steamAppId'
         | 'excludeFromPlaytime'
+        | 'hidden'
         | 'launchArgs'
         | 'runAsAdmin'
       >

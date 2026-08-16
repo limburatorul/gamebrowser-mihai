@@ -71,7 +71,7 @@ function BarList({ rows }: { rows: BarRow[] }): JSX.Element {
   const max = Math.max(1, ...rows.map((r) => r.value))
   return (
     <ul className="dashboard-bar-list">
-      {rows.map((row) => (
+      {rows.map((row, i) => (
         <li key={row.label} className="dashboard-bar-row">
           <span className="dashboard-bar-label" title={row.label}>
             {row.label}
@@ -79,7 +79,14 @@ function BarList({ rows }: { rows: BarRow[] }): JSX.Element {
           <span className="dashboard-bar-track">
             <span
               className="dashboard-bar-fill"
-              style={{ width: `${Math.max(3, Math.round((row.value / max) * 100))}%` }}
+              style={{
+                width: `${Math.max(3, Math.round((row.value / max) * 100))}%`,
+                // Each rank a shade fainter than the one above it. Every bar
+                // being the same flat accent made the lists read as one solid
+                // block; fading by position gives the ranking some depth
+                // without inventing colours the user's accent doesn't have.
+                opacity: Math.max(0.42, 1 - i * 0.11)
+              }}
             />
           </span>
           <span className="dashboard-bar-value">{row.display}</span>

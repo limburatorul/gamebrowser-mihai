@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { BackupEntry, BackupPrefs, ScanProgress, Settings } from '@shared/types'
+import type { BackupEntry, BackupPrefs, Game, ScanProgress, Settings } from '@shared/types'
 import type { UiPrefs } from '../lib/uiPrefs'
 import ColorPicker from './ColorPicker'
 import { ACCENT_PRESETS, SIDEBAR_PRESETS } from '../lib/color'
@@ -31,14 +31,20 @@ interface Props {
   onPickTrainerMirrorFolder: () => Promise<string | null>
   onScanTrainers: () => Promise<void>
   scanningTrainers: boolean
+  hiddenGames: Game[]
+  onUnhide: (id: string) => void
+  onUnhideAll: () => void
 }
 
-type Tab = 'appearance' | 'backup' | 'automation'
+type Tab = 'appearance' | 'backup' | 'automation' | 'hidden'
 
+// Short labels: a fourth tab makes "Backup & Restore" wrap onto two lines in
+// the fixed-width dialog, which pushes the whole tab row out of shape.
 const TABS: { key: Tab; label: string }[] = [
   { key: 'appearance', label: 'Appearance' },
-  { key: 'backup', label: 'Backup & Restore' },
-  { key: 'automation', label: 'Automation' }
+  { key: 'backup', label: 'Backup' },
+  { key: 'automation', label: 'Automation' },
+  { key: 'hidden', label: 'Hidden' }
 ]
 
 function formatHours(hours: number): string {
@@ -81,7 +87,10 @@ export default function SettingsDialog({
   onPickTrainerFolder,
   onPickTrainerMirrorFolder,
   onScanTrainers,
-  scanningTrainers
+  scanningTrainers,
+  hiddenGames,
+  onUnhide,
+  onUnhideAll
 }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('appearance')
   const [clientId, setClientId] = useState(initial.igdbClientId)
@@ -255,8 +264,36 @@ export default function SettingsDialog({
               <span className="settings-slider-value">{uiPrefs.tileHighlightBlur}px</span>
             </div>
 
+            <div className="settings-slider-row">
+              <span className="settings-slider-label">This window — transparency</span>
+              <input
+                type="range"
+                min={30}
+                max={100}
+                step={5}
+                value={Math.round(uiPrefs.settingsOpacity * 100)}
+                onChange={(e) => setPref('settingsOpacity', Number(e.target.value) / 100)}
+              />
+              <span className="settings-slider-value">{Math.round(uiPrefs.settingsOpacity * 100)}%</span>
+            </div>
+
+            <div className="settings-slider-row">
+              <span className="settings-slider-label">This window — blur</span>
+              <input
+                type="range"
+                min={0}
+                max={40}
+                step={1}
+                value={uiPrefs.settingsBlur}
+                onChange={(e) => setPref('settingsBlur', Number(e.target.value))}
+              />
+              <span className="settings-slider-value">{uiPrefs.settingsBlur}px</span>
+            </div>
+
             <p className="settings-note">
-              The card highlight is the frame behind a game card when it is hovered or selected.
+              The card highlight is the frame behind a game card when it is hovered or selected. &ldquo;This
+              window&rdquo; is the Settings dialog itself — drag either slider and you will see it change under your
+              cursor. It does not go fully transparent, since the controls have to stay readable.
             </p>
 
             <p className="settings-note">Appearance changes apply instantly and are saved automatically.</p>
@@ -637,6 +674,40 @@ export default function SettingsDialog({
               onChange={(e) => setRawgApiKey(e.target.value)}
               placeholder="e.g. 0123456789abcdef..."
             />
+          </>
+        )}
+
+        {tab === 'hidden' && (
+          <>
+            <h3 className="settings-section">Hidden Games</h3>
+            <p className="settings-note">
+              Hidden games stay in your library and keep their playtime, ratings and categories, but they are left
+              out of the grid, the counts in the sidebar and the rotating backdrop. The Dashboard still counts them,
+              since hiding a game does not free up the space it takes on disk.
+            </p>
+            {hiddenGames.length === 0 ? (
+              <p className="settings-note">
+                Nothing is hidden. Right-click a game, or use the ⋯ menu in the bar at the bottom, to hide one.
+              </p>
+            ) : (
+              <>
+                <ul className="hidden-list">
+                  {hiddenGames.map((game) => (
+                    <li key={game.id} className="hidden-entry">
+                      <span className="hidden-name" title={game.installDir}>
+                        {game.name}
+                      </span>
+                      <button className="btn hidden-unhide" type="button" onClick={() => onUnhide(game.id)}>
+                        Unhide
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button className="btn" type="button" onClick={onUnhideAll}>
+                  Unhide all {hiddenGames.length}
+                </button>
+              </>
+            )}
           </>
         )}
 

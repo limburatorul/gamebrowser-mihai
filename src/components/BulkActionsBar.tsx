@@ -13,6 +13,7 @@ interface Props {
   onRate: (rating: number | null) => void
   onUninstall: () => void
   onDeleteFromDisk: () => void
+  onHide: () => void
 }
 
 export default function BulkActionsBar({
@@ -25,7 +26,8 @@ export default function BulkActionsBar({
   onAddToCategory,
   onRate,
   onUninstall,
-  onDeleteFromDisk
+  onDeleteFromDisk,
+  onHide
 }: Props): JSX.Element {
   const [categorySelect, setCategorySelect] = useState('')
 
@@ -56,6 +58,13 @@ export default function BulkActionsBar({
             ))}
           </select>
         )}
+        <button
+          className="btn"
+          title="Keep them in the library but out of the grid, the sidebar counts and the backdrop"
+          onClick={onHide}
+        >
+          👁 Hide Selected
+        </button>
         {canUninstall && (
           <button className="btn" onClick={onUninstall}>
             Uninstall Selected

@@ -112,6 +112,8 @@ export default function App(): JSX.Element {
   // listener isn't torn down and re-attached on every keystroke in the search
   // box, which is what happens if the list itself is a dependency.
   const visibleGamesRef = useRef<Game[]>([])
+  // Lets a keystroke anywhere in the window hand focus to the search box.
+  const searchRef = useRef<HTMLInputElement>(null)
   const [updateDownloading, setUpdateDownloading] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [whatsNew, setWhatsNew] = useState<{ title: string; entries: ChangelogEntry[] } | null>(null)
@@ -236,6 +238,31 @@ export default function App(): JSX.Element {
       const el = document.activeElement
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return
 
+      // Start typing anywhere and it goes to the search box. Only a bare
+      // printable character counts: any modifier means a shortcut (Ctrl+F,
+      // Alt+Tab), and e.key is a whole word ('ArrowLeft', 'F5', 'Dead' for an
+      // IME dead key) for everything that isn't one. Space is left out - it
+      // can't usefully start a query, and once the first character has landed
+      // the box has focus, so the rest of the phrase reaches it directly.
+      //
+      // Deliberately ahead of the empty-list check below: a search matching
+      // nothing must still accept more typing.
+      if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key.length === 1 && e.key !== ' ' && searchRef.current) {
+        e.preventDefault()
+        const input = searchRef.current
+        // Functional update because `search` isn't a dependency of this
+        // effect, so the value captured in this closure would be stale.
+        setSearch((current) => current + e.key)
+        input.focus()
+        // After React has re-rendered with the new value, or the caret can be
+        // left wherever it was and the next characters land mid-word.
+        requestAnimationFrame(() => {
+          const end = input.value.length
+          input.setSelectionRange(end, end)
+        })
+        return
+      }
+
       const list = visibleGamesRef.current
       if (list.length === 0) return
 
@@ -285,10 +312,20 @@ export default function App(): JSX.Element {
     return [...set].sort((a, b) => a.localeCompare(b))
   }, [games])
 
+  // Everything you browse works from this rather than `games`: the grid, the
+  // sidebar counts and its most-played list, and the backdrop. The Dashboard
+  // is deliberately the exception and still sees the whole library - it
+  // reports on what is on disk, and hiding a game doesn't free its space.
+  const browsableGames = useMemo(() => games.filter((g) => !g.hidden), [games])
+  const hiddenGames = useMemo(() => games.filter((g) => g.hidden), [games])
+
   // Games flagged "ignore playtime" keep their recorded seconds but are left
   // out of every aggregate - the library total here, the most-played list
   // below, and the dashboard's totals and breakdowns.
-  const countedForPlaytime = useMemo(() => games.filter((g) => !g.excludeFromPlaytime), [games])
+  const countedForPlaytime = useMemo(
+    () => browsableGames.filter((g) => !g.excludeFromPlaytime),
+    [browsableGames]
+  )
 
   const totalPlaytimeSeconds = useMemo(
     () => countedForPlaytime.reduce((sum, g) => sum + g.playtimeSeconds, 0),
@@ -296,8 +333,8 @@ export default function App(): JSX.Element {
   )
 
   const backdropCoverPaths = useMemo(
-    () => games.map((g) => g.coverPath).filter((p): p is string => Boolean(p)),
-    [games]
+    () => browsableGames.map((g) => g.coverPath).filter((p): p is string => Boolean(p)),
+    [browsableGames]
   )
 
   const playtimeEntries = useMemo(
@@ -310,7 +347,7 @@ export default function App(): JSX.Element {
   )
 
   const visibleGames = useMemo(() => {
-    let list = games
+    let list = browsableGames
     if (filter === 'favorites') list = list.filter((g) => g.favorite)
     if (filter === 'recent') list = list.filter((g) => g.lastPlayed)
     if (filter === 'never-played') list = list.filter((g) => g.playtimeSeconds === 0)
@@ -352,7 +389,7 @@ export default function App(): JSX.Element {
       }
     })
     return sorted
-  }, [games, filter, genreFilter, tagFilter, search, sortKey])
+  }, [browsableGames, filter, genreFilter, tagFilter, search, sortKey])
 
   useEffect(() => {
     visibleGamesRef.current = visibleGames
@@ -900,6 +937,26 @@ export default function App(): JSX.Element {
     void window.api.update(id, { excludeFromPlaytime: !game.excludeFromPlaytime })
   }
 
+  function handleToggleHidden(id: string): void {
+    const game = games.find((g) => g.id === id)
+    if (!game) return
+    void window.api.update(id, { hidden: !game.hidden })
+    // A hidden game disappears from the grid, so leaving it selected would
+    // leave the details bar showing something that is no longer on screen.
+    if (!game.hidden) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
+  async function handleBulkHide(): Promise<void> {
+    await Promise.all([...selectedIds].map((id) => window.api.update(id, { hidden: true })))
+    setSelectedIds(new Set())
+  }
+
   function handleRateGame(id: string, rating: number | null): void {
     void window.api.update(id, { rating })
   }
@@ -1070,6 +1127,8 @@ export default function App(): JSX.Element {
           '--details-blur': `${uiPrefs.detailsBarBlur}px`,
           '--tile-highlight-alpha': String(uiPrefs.tileHighlightOpacity),
           '--tile-highlight-blur': `${uiPrefs.tileHighlightBlur}px`,
+          '--settings-alpha': String(uiPrefs.settingsOpacity),
+          '--settings-blur': `${uiPrefs.settingsBlur}px`,
           '--accent': uiPrefs.accentColor,
           '--accent-dim': mixHex(uiPrefs.accentColor, '#10131a', 0.45),
           '--accent-light': mixHex(uiPrefs.accentColor, '#ffffff', 0.22),
@@ -1089,6 +1148,7 @@ export default function App(): JSX.Element {
       <TopBar
         search={search}
         onSearchChange={setSearch}
+        searchRef={searchRef}
         sortKey={sortKey}
         onSortChange={setSortKey}
         viewMode={viewMode}
@@ -1119,18 +1179,18 @@ export default function App(): JSX.Element {
         <Sidebar
           filter={filter}
           onFilterChange={setFilter}
-          totalCount={games.length}
-          favoriteCount={games.filter((g) => g.favorite).length}
-          neverPlayedCount={games.filter((g) => g.playtimeSeconds === 0).length}
-          hasTrainerCount={games.filter((g) => g.trainerPath).length}
-          noCoverCount={games.filter((g) => !g.coverPath).length}
-          steamCount={games.filter((g) => g.source === 'steam').length}
-          epicCount={games.filter((g) => g.source === 'epic').length}
-          gogCount={games.filter((g) => g.source === 'gog').length}
-          ubisoftCount={games.filter((g) => g.source === 'ubisoft').length}
+          totalCount={browsableGames.length}
+          favoriteCount={browsableGames.filter((g) => g.favorite).length}
+          neverPlayedCount={browsableGames.filter((g) => g.playtimeSeconds === 0).length}
+          hasTrainerCount={browsableGames.filter((g) => g.trainerPath).length}
+          noCoverCount={browsableGames.filter((g) => !g.coverPath).length}
+          steamCount={browsableGames.filter((g) => g.source === 'steam').length}
+          epicCount={browsableGames.filter((g) => g.source === 'epic').length}
+          gogCount={browsableGames.filter((g) => g.source === 'gog').length}
+          ubisoftCount={browsableGames.filter((g) => g.source === 'ubisoft').length}
           categories={categories}
           categoryCounts={Object.fromEntries(
-            categories.map((c) => [c.id, games.filter((g) => g.categoryIds.includes(c.id)).length])
+            categories.map((c) => [c.id, browsableGames.filter((g) => g.categoryIds.includes(c.id)).length])
           )}
           totalPlaytimeSeconds={totalPlaytimeSeconds}
           playtimeEntries={playtimeEntries}
@@ -1184,6 +1244,7 @@ export default function App(): JSX.Element {
           onRemove={handleRemove}
           onUninstall={setConfirmUninstallId}
           onDeleteFromDisk={setConfirmDeleteDiskId}
+          onToggleHidden={handleToggleHidden}
         />
       )}
 
@@ -1200,6 +1261,7 @@ export default function App(): JSX.Element {
               onDelete={() => setConfirmBulkDelete(true)}
               onAddToCategory={handleBulkAddToCategory}
               onRate={handleBulkRate}
+              onHide={() => void handleBulkHide()}
               onUninstall={() => setConfirmBulkUninstall(true)}
               onDeleteFromDisk={() => setConfirmBulkDeleteDisk(true)}
             />
@@ -1220,6 +1282,7 @@ export default function App(): JSX.Element {
               onLaunch={handleLaunch}
               onToggleFavorite={handleToggleFavorite}
               onTogglePlaytimeIgnored={handleTogglePlaytimeIgnored}
+              onToggleHidden={handleToggleHidden}
               onEdit={handleEdit}
               onSetCover={handleSetCover}
               onRemove={handleRemove}
@@ -1266,6 +1329,11 @@ export default function App(): JSX.Element {
           onPickTrainerMirrorFolder={handlePickTrainerMirrorFolder}
           onScanTrainers={handleScanTrainers}
           scanningTrainers={scanningTrainers}
+          hiddenGames={hiddenGames}
+          onUnhide={(id) => void window.api.update(id, { hidden: false })}
+          onUnhideAll={() => {
+            for (const g of hiddenGames) void window.api.update(g.id, { hidden: false })
+          }}
         />
       )}
       {aboutOpen && (

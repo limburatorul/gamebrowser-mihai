@@ -8,6 +8,9 @@ export interface UiPrefs {
   // Glass treatment for the highlight behind a hovered/selected game card.
   tileHighlightOpacity: number
   tileHighlightBlur: number
+  // The Settings dialog's own glass.
+  settingsOpacity: number
+  settingsBlur: number
   backdropEnabled: boolean
   backdropIntervalSec: number
   backdropBrightness: number
@@ -23,6 +26,10 @@ export const DEFAULT_UI_PREFS: UiPrefs = {
   detailsBarBlur: 16,
   tileHighlightOpacity: 0.55,
   tileHighlightBlur: 16,
+  // Higher than the bars: this one sits over the whole library and has to
+  // stay readable, so it defaults to mostly opaque.
+  settingsOpacity: 0.86,
+  settingsBlur: 20,
   backdropEnabled: true,
   backdropIntervalSec: 8,
   backdropBrightness: 0.4,
@@ -58,6 +65,8 @@ export function loadUiPrefs(): UiPrefs {
         DEFAULT_UI_PREFS.tileHighlightOpacity
       ),
       tileHighlightBlur: clamp(Number(parsed.tileHighlightBlur), 0, 30, DEFAULT_UI_PREFS.tileHighlightBlur),
+      settingsOpacity: clamp(Number(parsed.settingsOpacity), 0.3, 1, DEFAULT_UI_PREFS.settingsOpacity),
+      settingsBlur: clamp(Number(parsed.settingsBlur), 0, 40, DEFAULT_UI_PREFS.settingsBlur),
       backdropEnabled:
         typeof parsed.backdropEnabled === 'boolean' ? parsed.backdropEnabled : DEFAULT_UI_PREFS.backdropEnabled,
       backdropIntervalSec: clamp(

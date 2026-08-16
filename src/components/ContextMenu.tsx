@@ -10,6 +10,7 @@ interface Props {
   onLaunch: (id: string) => void
   onToggleFavorite: (id: string) => void
   onTogglePlaytimeIgnored: (id: string) => void
+  onToggleHidden: (id: string) => void
   onEdit: (id: string) => void
   onSetCover: (id: string) => void
   onRemove: (id: string) => void
@@ -28,6 +29,7 @@ export default function ContextMenu({
   onLaunch,
   onToggleFavorite,
   onTogglePlaytimeIgnored,
+  onToggleHidden,
   onEdit,
   onSetCover,
   onRemove,
@@ -83,6 +85,13 @@ export default function ContextMenu({
           onClick={() => run(onTogglePlaytimeIgnored)}
         >
           {game.excludeFromPlaytime ? '⏱ Count Playtime' : '⏱ Ignore Playtime'}
+        </button>
+        <button
+          className="context-menu-item"
+          title="Keeps the game in the library but out of the grid, the sidebar counts and the backdrop. Bring it back from Settings > Hidden Games."
+          onClick={() => run(onToggleHidden)}
+        >
+          {game.hidden ? '👁 Unhide' : '👁 Hide'}
         </button>
         <button className="context-menu-item" onClick={() => run(onSetCover)}>
           Set Cover

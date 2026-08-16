@@ -6,6 +6,60 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.37.0',
+    changes: [
+      'The backup list and the hidden games list are no longer small boxes with their own scrollbar — they show every entry, and Settings itself scrolls.',
+      'Cancel and Save stay pinned to the bottom of Settings, so a long list cannot push them out of reach.',
+      'New: transparency and blur sliders for the Settings window itself, in Appearance, alongside the ones for the top bar and the details bar.'
+    ]
+  },
+  {
+    version: '1.36.0',
+    changes: [
+      'The library now scrolls underneath the top bar and the bar at the bottom, so the cover art moves behind their glass instead of stopping short of it. The scrollbar still stays between the two, where you can reach it.',
+      'Settings is half again as wide and picks up the same glass as the rest of the window, so the labels no longer crowd their sliders.',
+      'The sidebar and the details panel are unchanged.'
+    ]
+  },
+  {
+    version: '1.35.0',
+    changes: [
+      'New: games can be hidden. Right-click one, or use the ⋯ menu in the bar at the bottom; with several selected there is a "Hide Selected" button.',
+      'A hidden game keeps its playtime, rating and categories, but it is left out of the grid, the counts in the sidebar, the most-played list, and the rotating backdrop.',
+      'New: a "Hidden" tab in Settings lists everything you have hidden, with an Unhide button for each and one to bring them all back.',
+      'The Dashboard deliberately still counts hidden games — hiding one does not free up the space it takes on disk.'
+    ]
+  },
+  {
+    version: '1.34.0',
+    changes: [
+      'The sliders and tick boxes are no longer the plain Windows ones — Settings alone showed ten of them — so the whole window now looks like one program.',
+      'The playtime bars in the sidebar have a visible track again instead of looking like loose dashes, and each filter in the sidebar has its own colour.',
+      'Uninstall, Delete from Disk and Remove have moved out of the bottom bar into a "⋯" menu, so they are no longer one button away from Edit.',
+      'The Dashboard totals sit in an even grid rather than spilling onto a second row at double width, and the bars fade down the ranking instead of all being the same flat blue.'
+    ]
+  },
+  {
+    version: '1.33.0',
+    changes: [
+      'List view now looks like the rest of the program. A selected row is marked with a bar down its leading edge instead of a full outline, which across a wide row looked like a text box.',
+      'Rows are separated by a hairline, so the eye can follow one from the name across to the playtime at the far right, and the numbers line up in proper columns.',
+      'New: hovering a row shows a play button over its thumbnail, the same as the grid.'
+    ]
+  },
+  {
+    version: '1.32.0',
+    changes: [
+      'New: list view has column headings — Name, Genres, Size, Last played, Playtime — and they stay put at the top while you scroll.'
+    ]
+  },
+  {
+    version: '1.31.0',
+    changes: [
+      'New: just start typing anywhere in the window and it goes into the search box — no need to click it first. Arrow keys still move through the library, and shortcuts like Ctrl+A are untouched.'
+    ]
+  },
+  {
     version: '1.30.1',
     changes: [
       'Fixed: the size and trainer markings on a cover, and the play button on hover, could be hidden behind the cover art itself — most reliably after resizing the window. Introduced by the cover work in 1.30.0.'

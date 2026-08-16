@@ -48,6 +48,94 @@ select {
   color: inherit;
 }
 
+/* Range sliders and checkboxes, styled for the same reason the <select>s were:
+   the native Windows controls are the last things in here that look like they
+   came from another decade, and Settings alone shows ten sliders at once.
+   Electron-only, so the -webkit- pseudo-elements are always available - the
+   same reasoning as the custom scrollbars. */
+input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  /* Half the thumb minus half the track, to sit it on the centre line. */
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--accent);
+  /* Ring in the panel colour so the thumb reads as separate from the track
+     rather than merging with it at the ends. */
+  border: 2px solid var(--bg-1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+input[type='range']:active::-webkit-slider-thumb,
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 5px rgba(var(--accent-rgb), 0.22);
+}
+
+input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-2);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+/* The tick is a clipped square rather than a glyph, so it scales cleanly and
+   needs no font. */
+input[type='checkbox']::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  transform: scale(0);
+  transition: transform 120ms ease;
+  clip-path: polygon(14% 46%, 0 60%, 39% 100%, 100% 22%, 86% 8%, 39% 72%);
+}
+
+input[type='checkbox']:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+input[type='checkbox']:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+input[type='checkbox']:checked::before {
+  transform: scale(1);
+}
+
+input[type='checkbox']:focus-visible {
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.3);
+}
+
 .app {
   display: flex;
   flex-direction: column;
@@ -567,6 +655,38 @@ select {
   opacity: 0.85;
 }
 
+/* A colour per filter, so the column reads as a set of distinct things rather
+   than one grey list. Deliberately muted - these sit behind the labels, they
+   are not the point. Glyphs Windows renders as colour emoji (the picture
+   frame, the bolt) ignore `color` and keep their own, which is fine. */
+.sidebar-icon[data-key] {
+  opacity: 1;
+}
+
+.sidebar-icon[data-key='all'] {
+  color: #8ab4f8;
+}
+
+.sidebar-icon[data-key='recent'] {
+  color: #5fd4c4;
+}
+
+.sidebar-icon[data-key='never-played'] {
+  color: #9aa0b4;
+}
+
+.sidebar-icon[data-key='has-trainer'] {
+  color: #f0b429;
+}
+
+.sidebar-icon[data-key='favorites'] {
+  color: #f5c542;
+}
+
+.sidebar-icon[data-key='no-cover'] {
+  color: #e88aa8;
+}
+
 .sidebar-icon svg {
   display: block;
   margin: 0 auto;
@@ -695,20 +815,26 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
+/* The track was --bg-3, which is a couple of shades off the sidebar itself and
+   therefore invisible - so the bars read as loose blue dashes rather than as
+   filled meters. Translucent white sits on whatever the sidebar colour is,
+   which is user-configurable. */
 .sidebar-playtime-track {
   display: block;
   width: 100%;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--bg-3);
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
 
 .sidebar-playtime-bar {
   display: block;
   height: 100%;
-  border-radius: 2px;
-  background: var(--accent);
+  border-radius: 3px;
+  /* Derived from --accent-rgb, never a fixed colour: the accent is a user
+     setting, and a hardcoded shade would break the moment they change it. */
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.55), var(--accent));
 }
 
 .sidebar-footer {
@@ -754,13 +880,22 @@ select {
 .game-scroll {
   flex: 1;
   overflow-y: auto;
-  margin-top: 68px;
-  padding: 0 16px 16px;
-  transition: margin-bottom 220ms ease;
+  /* Padding, not margin, so the grid scrolls *underneath* the translucent
+     topbar and details bar and you see cover art moving through the glass -
+     which is the whole point of them being translucent.
+     This was margin until v1.36.0, precisely because padding leaves the
+     scroll box spanning the full window height and its scrollbar then ran
+     from behind the topbar to behind the details bar with both ends
+     unreachable. That is now solved separately, by giving the scrollbar
+     track its own matching margins (see ::-webkit-scrollbar-track below), so
+     the thumb stays inside the visible band while the content still passes
+     under the glass. Keep the two sets of numbers in step. */
+  padding: 68px 16px 16px;
+  transition: padding-bottom 220ms ease;
 }
 
 .app.has-details .game-scroll {
-  margin-bottom: var(--details-bar-height);
+  padding-bottom: calc(16px + var(--details-bar-height));
 }
 
 .empty-state {
@@ -1064,7 +1199,15 @@ select {
   padding: 6px 8px;
   border-radius: var(--radius);
   cursor: pointer;
+  /* Kept transparent purely so the header, which repeats it, lines its
+     columns up with the rows. Selection no longer uses it. */
   border: 1px solid transparent;
+  /* A hairline under each row. inset box-shadow rather than border-bottom so
+     it costs no layout and can stack with the selection bar below. Across a
+     1700px row the eye needs something to follow from the name to the
+     playtime at the far right. */
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.055);
+  transition: background-color 120ms ease;
 }
 
 /* Same glass highlight as the grid tiles, so the two view modes match. */
@@ -1075,15 +1218,25 @@ select {
   -webkit-backdrop-filter: blur(var(--tile-highlight-blur, 16px)) saturate(1.2);
 }
 
+/* An accent bar down the leading edge, not a full outline. A 1px accent
+   border reads as a frame around a 250px tile, but stretched across a 1700px
+   row it reads as a text input - which is what made list view look like it
+   belonged to a different program. The bar is an inset shadow so it costs no
+   layout and the row doesn't shift by a pixel when selected. */
 .list-row.selected {
-  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent), inset 0 -1px 0 rgba(255, 255, 255, 0.055);
 }
 
 .list-row-cover {
   width: 40px;
   height: 52px;
   flex-shrink: 0;
-  border-radius: 3px;
+  /* Matches the grid tile's cover rounding, with a hairline and a little
+     depth so the thumbnail doesn't sit flat on the backdrop. */
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  position: relative;
   overflow: hidden;
   background: var(--bg-3);
 }
@@ -1136,6 +1289,44 @@ select {
   text-align: right;
 }
 
+/* Tabular figures so the digits stack in a column instead of shuffling
+   sideways from row to row - the thing that makes a list read as a table. */
+.list-row-size,
+.list-row-date,
+.list-row-playtime {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sits over the thumbnail, revealed on row hover, same idea as the grid's
+   tile button but sized for a 40px cover. */
+.list-play-btn {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: rgba(8, 10, 14, 0.55);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.list-row:hover .list-play-btn {
+  opacity: 1;
+}
+
+.list-play-btn:hover {
+  background: rgba(var(--accent-rgb), 0.72);
+}
+
+.list-play-btn:active {
+  background: rgba(var(--accent-rgb), 0.9);
+}
+
 .list-row-size {
   width: 78px;
 }
@@ -1161,6 +1352,53 @@ select {
 .trainer-inline {
   margin-left: 8px;
   color: #f0b429;
+}
+
+/* Column labels for list view. Same flex metrics as .list-row - including the
+   1px transparent border the rows carry for their selection outline - so the
+   columns line up without repeating any widths. */
+.list-header {
+  position: sticky;
+  /* Sticky offsets are measured from the scrollport edge, which is the border
+     box - behind the topbar now that .game-scroll is padded. Without this the
+     header would slide under the topbar as soon as you scrolled. */
+  top: 68px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  /* Glass, like the topbar: the rotating backdrop shows through the grid, and
+     a solid strip here would read as a slab across the window. */
+  background: rgba(23, 24, 27, 0.82);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+/* The spacer standing in for the cover thumbnail: keep its width, drop
+   everything that makes the real thumbnail look like a thumbnail. */
+.list-header .list-row-cover {
+  height: auto;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+
+/* Column classes carry their own font size for the rows; the header sets one
+   for all of them at once. */
+.list-header .list-row-genres,
+.list-header .list-row-size,
+.list-header .list-row-date,
+.list-header .list-row-playtime {
+  font-size: inherit;
+  color: inherit;
 }
 
 /* Details bar */
@@ -1281,6 +1519,18 @@ select {
      fixed height plus the existing overflow-y:auto keeps it constant and
      just scrolls internally for the taller tabs. */
   height: 80vh;
+  /* Half again the standard 460px modal. Settings is the one dialog that is
+     mostly label-and-control rows, and at 460 the labels were crowding their
+     sliders and the explanatory paragraphs ran very narrow. */
+  width: 690px;
+  /* Glass, like the topbar, the details bar and the card highlight, and
+     tunable from Appearance the same way they are. The overlay behind it
+     already dims the window, so this reads as depth rather than as a hole. */
+  background: rgba(23, 24, 27, var(--settings-alpha, 0.86));
+  backdrop-filter: blur(var(--settings-blur, 20px)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--settings-blur, 20px)) saturate(1.25);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
 }
 
 .modal-small {
@@ -1364,6 +1614,24 @@ select {
   margin-top: auto;
   padding-top: 16px;
   border-top: 1px solid var(--border);
+}
+
+/* Settings only. Its lists now run to full length and the dialog scrolls, so
+   Cancel/Save would scroll off the end and leave no way to save without
+   paging back down. The negative margins pull it out to the modal's padding
+   edges - including the 20px at the bottom, hence bottom: -20px - so the bar
+   spans the full width and sits flush with the end of the dialog. */
+.settings-modal .modal-actions {
+  position: sticky;
+  bottom: -20px;
+  z-index: 2;
+  margin: auto -20px -20px;
+  padding: 12px 20px;
+  /* A touch more opaque than the dialog itself so the buttons stay legible
+     over whatever is scrolling underneath them. */
+  background: rgba(23, 24, 27, calc(var(--settings-alpha, 0.86) + 0.08));
+  backdrop-filter: blur(var(--settings-blur, 20px)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--settings-blur, 20px)) saturate(1.25);
 }
 
 .whats-new-modal {
@@ -1547,8 +1815,11 @@ select {
   border-bottom: 2px solid transparent;
   color: var(--text-2);
   padding: 8px 4px 10px;
-  margin-right: 16px;
+  /* Was 16px; four tabs no longer fit the fixed dialog width at that spacing
+     and the labels started wrapping onto a second line. */
+  margin-right: 10px;
   font-size: 13px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1756,12 +2027,19 @@ select {
   width: 480px;
 }
 
-.dashboard-totals {
-  flex-wrap: wrap;
+/* A fixed three-column grid instead of wrapping flex. With six tiles, flex
+   put four on the first row and stretched the remaining two to double width,
+   which looked like a mistake rather than a layout.
+   Both class names are needed: .about-stats is defined further down the file
+   and would otherwise win `display: flex` on equal specificity. */
+.about-stats.dashboard-totals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 
 .dashboard-totals .about-stat {
-  min-width: 96px;
+  min-width: 0;
 }
 
 .dashboard-bar-list {
@@ -1817,12 +2095,14 @@ select {
   color: var(--danger);
 }
 
+/* No max-height and no scroller of its own: the list shows every backup and
+   the dialog itself scrolls. A 160px box inside an already-scrolling dialog
+   meant two nested scrollbars and only three or four archives visible at a
+   time. */
 .backup-list {
   list-style: none;
   margin: 0 0 16px;
   padding: 0;
-  max-height: 160px;
-  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
@@ -2078,6 +2358,61 @@ select {
   max-width: 100%;
 }
 
+/* The details bar sits at the bottom of the window, so its menu opens upward
+   instead of down. */
+.details-more-menu {
+  top: auto;
+  bottom: calc(100% + 4px);
+  left: auto;
+  right: 0;
+  min-width: 200px;
+}
+
+.details-more-btn {
+  padding: 7px 12px;
+  line-height: 1;
+}
+
+/* Same as .backup-list: every entry is shown and the dialog does the
+   scrolling, rather than a short box scrolling inside a scrolling dialog. */
+.hidden-list {
+  list-style: none;
+  margin: 8px 0 12px;
+  padding: 0;
+}
+
+.hidden-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.hidden-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hidden-unhide {
+  flex-shrink: 0;
+  padding: 4px 10px;
+}
+
+.import-menu-item.is-danger {
+  color: var(--danger);
+}
+
+.import-menu-item.is-danger:hover {
+  background: rgba(229, 72, 77, 0.14);
+}
+
 .import-menu-separator {
   height: 1px;
   background: var(--border);
@@ -2282,6 +2617,20 @@ select {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* The grid scrolls under the topbar and the details bar, so without this its
+   scrollbar would span the whole window with both ends sitting behind glass
+   and unreachable. Chromium honours margins on the track, which keeps the
+   thumb's travel inside the region you can actually see and click. Must match
+   .game-scroll's padding above. */
+.game-scroll::-webkit-scrollbar-track {
+  margin-top: 68px;
+  margin-bottom: 0;
+}
+
+.app.has-details .game-scroll::-webkit-scrollbar-track {
+  margin-bottom: var(--details-bar-height);
 }
 
 ::-webkit-scrollbar-thumb {

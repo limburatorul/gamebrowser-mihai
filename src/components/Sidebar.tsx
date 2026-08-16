@@ -160,7 +160,13 @@ export default function Sidebar({
               className={`sidebar-item ${filter === item.key ? 'active' : ''}`}
               onClick={() => onFilterChange(item.key)}
             >
-              <span className="sidebar-icon">{item.icon}</span>
+              {/* data-key so each filter's glyph can carry its own colour.
+                  The platform entries render an SVG and ignore it, and the
+                  couple of glyphs Windows draws as colour emoji keep their
+                  own palette either way. */}
+              <span className="sidebar-icon" data-key={item.key}>
+                {item.icon}
+              </span>
               <span>{item.label}</span>
               <span className="sidebar-count">{countFor(item.key)}</span>
             </button>
