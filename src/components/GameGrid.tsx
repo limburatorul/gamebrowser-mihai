@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Game, ViewMode } from '@shared/types'
 import CoverImage from './CoverImage'
-import { formatPlaytime, formatSize } from '../lib/localFile'
+import { formatDate, formatPlaytime, formatSize } from '../lib/localFile'
 
 interface Props {
   games: Game[]
@@ -86,6 +86,13 @@ export default function GameGrid({
 
   const emptyState = games.length === 0
 
+  // Restarts the entrance animation whenever the visible set actually changes
+  // - a new search, filter or sort - by remounting the row container. Cheap
+  // (only the ~80 virtualised rows exist) and it is the one reliable way to
+  // replay a CSS animation. Deliberately not keyed on the array identity,
+  // which changes on every render of App and would re-animate constantly.
+  const resultKey = `${games.length}|${games[0]?.id ?? ''}|${games[games.length - 1]?.id ?? ''}`
+
   return (
     <div className="game-scroll" ref={parentRef} onClick={onBackgroundClick}>
       {emptyState ? (
@@ -94,7 +101,11 @@ export default function GameGrid({
           <p className="empty-state-sub">Add a game manually or scan a folder to get started.</p>
         </div>
       ) : (
-        <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+        <div
+          key={resultKey}
+          className="game-results"
+          style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}
+        >
           {virtualRows.map((virtualRow) => {
             if (viewMode === 'list') {
               const game = games[virtualRow.index]
@@ -256,9 +267,23 @@ function ListRow({
       </div>
       <div className="list-row-name">
         {game.name}
+        {game.trainerPath && (
+          <span className="trainer-inline" title="A trainer is available for this game">
+            ⚡
+          </span>
+        )}
         {game.favorite && <span className="favorite-inline">★</span>}
         {game.rating !== null && <span className="rating-inline">★ {game.rating}</span>}
       </div>
+      {/* A 1920px-wide row used to hold a thumbnail, a name and nothing else
+          until the playtime at the far right. These columns are all data the
+          library already carries, and they are what makes the list mode worth
+          switching to over the grid. */}
+      <div className="list-row-genres" title={game.genres.join(', ')}>
+        {game.genres.join(', ')}
+      </div>
+      <div className="list-row-size">{game.installSizeBytes === null ? '' : formatSize(game.installSizeBytes)}</div>
+      <div className="list-row-date">{game.lastPlayed ? formatDate(game.lastPlayed) : ''}</div>
       <div className="list-row-playtime">{formatPlaytime(game.playtimeSeconds)}</div>
       {running && <div className="running-badge inline">RUNNING</div>}
     </div>

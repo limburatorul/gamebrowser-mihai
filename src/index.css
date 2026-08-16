@@ -69,13 +69,30 @@ select {
   inset: -40px;
   background-size: cover;
   background-position: center;
-  filter: brightness(var(--backdrop-brightness, 0.4)) blur(var(--backdrop-blur, 20px));
+  /* Saturation pulled well down: at full strength one strongly-coloured cover
+     washes the whole window in its own hue, which reads as a smear rather
+     than a backdrop - most obvious in list view, where nothing covers it. */
+  filter: brightness(var(--backdrop-brightness, 0.4)) blur(var(--backdrop-blur, 20px)) saturate(0.45);
   opacity: 0;
   transition: opacity 1.2s ease;
 }
 
 .backdrop-image.is-active {
   opacity: 1;
+}
+
+/* Vignette over the whole backdrop: darkens the edges and both ends so the
+   content sits on something composed, and the topbar and details bar have a
+   consistently dark strip behind their glass instead of whatever the current
+   cover happens to be. */
+.backdrop-layer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 70% at 50% 45%, transparent 0%, rgba(0, 0, 0, 0.5) 100%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.45) 0%, transparent 22%, transparent 74%, rgba(0, 0, 0, 0.5) 100%);
 }
 
 /* Top bar */
@@ -159,12 +176,43 @@ select {
   margin-left: auto;
 }
 
+/* appearance: none strips the native Windows control, which sat in the
+   topbar looking a decade older than everything around it. The arrow is an
+   inline SVG data URI so nothing is fetched, and the extra right padding
+   keeps a long value from running underneath it. The element is still a real
+   <select>, so the open dropdown, keyboard handling and the measured
+   max-width below all keep working exactly as before. */
 .select {
-  background: var(--bg-2);
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--bg-2);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%236f7278' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 6px 8px;
+  padding: 6px 26px 6px 10px;
+  color: var(--text-0);
   outline: none;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.select:hover {
+  background-color: var(--bg-3);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.select:focus-visible {
+  border-color: var(--accent);
+}
+
+/* The dropdown itself is drawn by the OS and does not inherit the styling
+   above; this at least keeps it dark instead of flashing white. */
+.select option {
+  background: var(--bg-1);
+  color: var(--text-0);
 }
 
 /* A <select> sizes itself to its widest option, so the genre/tag filters grew
@@ -735,6 +783,36 @@ select {
   display: flex;
 }
 
+/* Plays once each time the result set changes, so filtering and searching
+   settle in rather than snapping. Kept on the container instead of each tile:
+   rows mount and unmount constantly while scrolling a virtualised list, and a
+   per-tile animation would fire again every time one scrolled into view. */
+@keyframes results-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.game-results {
+  animation: results-enter 220ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-results {
+    animation: none;
+  }
+
+  .game-tile,
+  .cover-photo {
+    transition: none;
+  }
+}
+
 .game-tile {
   cursor: pointer;
   border-radius: var(--radius);
@@ -744,6 +822,20 @@ select {
      rather than widening the tile; row height in GameGrid is unaffected. */
   padding: 4px 9px;
   border: 2px solid transparent;
+  /* Only transform and box-shadow animate, both compositor-friendly - the
+     glass background stays a straight swap so hovering across a row of tiles
+     doesn't queue up 80 backdrop-filter repaints. */
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.game-tile:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+}
+
+.game-tile:active {
+  transform: translateY(-1px);
+  transition-duration: 80ms;
 }
 
 /* Glass instead of the old flat --bg-2 fill: same treatment as the topbar and
@@ -769,11 +861,46 @@ select {
   background: var(--bg-3);
 }
 
+/* The class both view modes pass in is now the frame the artwork sits in,
+   not the <img> itself - see CoverImage for why some covers can't be cropped
+   to fill. */
 .cover-img {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.cover-photo {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+  /* Covers arrive one by one from the local-file handler; without this they
+     snap in and the grid visibly flickers as you scroll. */
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+
+.cover-photo.is-loaded {
+  opacity: 1;
+}
+
+.cover-frame.is-fitted .cover-photo {
+  object-fit: contain;
+}
+
+/* A blown-up, blurred copy of the same artwork behind a fitted cover, so a
+   wide header image reads as full-bleed instead of sitting in grey bars. */
+.cover-fill {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(18px) saturate(1.4) brightness(0.55);
+  transform: scale(1.25);
 }
 
 .cover-placeholder {
@@ -974,6 +1101,55 @@ select {
   color: var(--text-2);
   font-size: 12px;
   flex-shrink: 0;
+  width: 84px;
+  text-align: right;
+}
+
+/* Fixed widths rather than flex, so the columns line up down the whole list
+   instead of shifting with each row's content length. */
+.list-row-genres {
+  width: 240px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.list-row-size,
+.list-row-date {
+  flex-shrink: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: right;
+}
+
+.list-row-size {
+  width: 78px;
+}
+
+.list-row-date {
+  width: 104px;
+}
+
+/* The columns are the first thing to go when the window is narrow - the name
+   and playtime matter more than any of them. */
+@media (max-width: 1500px) {
+  .list-row-genres {
+    display: none;
+  }
+}
+
+@media (max-width: 1280px) {
+  .list-row-date {
+    display: none;
+  }
+}
+
+.trainer-inline {
+  margin-left: 8px;
+  color: #f0b429;
 }
 
 /* Details bar */

@@ -6,6 +6,16 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.30.0',
+    changes: [
+      'Covers that are not the shape of the tile — the wide artwork Steam uses for newer games, or the game icon when no cover was found — are no longer cropped down to a sliver or blown up blurry. They now sit whole against a blurred copy of themselves, so the grid looks even.',
+      'The rotating backdrop no longer washes the whole window in whatever colour the current cover happens to be, and the edges are darkened so the library sits on something calmer. Most noticeable in list view, where nothing covers it.',
+      'List view now shows genres, size on disk and when you last played, instead of leaving the middle of every row empty. The columns drop away on their own on a narrower window.',
+      'Covers fade in as they load instead of snapping in, tiles lift slightly under the cursor, and the grid settles in when you search or change a filter.',
+      'The sort and filter dropdowns are no longer the plain Windows ones and now match the rest of the window.'
+    ]
+  },
+  {
     version: '1.29.1',
     changes: [
       'Fixed: games uninstalled from Steam, Epic, GOG or Ubisoft were only noticed when the app started. If you left it open — which is the normal way to use it — the list went stale; sixteen games sat in the library for over a day after being uninstalled. It now re-checks every fifteen minutes.',
