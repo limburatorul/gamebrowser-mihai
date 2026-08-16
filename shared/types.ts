@@ -167,6 +167,48 @@ export interface DuplicateGroup {
   reclaimableBytes: number | null
 }
 
+export interface DriveUsage {
+  /** Volume root as Windows spells it, e.g. `D:\`. */
+  root: string
+  /** Library games installed on this drive. */
+  gameCount: number
+  /** Measured size of those games. Unmeasured ones contribute nothing, so
+      this is a floor rather than a total whenever `unmeasured` is non-zero. */
+  gameBytes: number
+  unmeasured: number
+  /** The part of `gameBytes` belonging to games that were never played -
+      the actionable number when a drive is running out of room. */
+  neverPlayedBytes: number
+  /** Null when the volume can't be reached, typically an unplugged drive. */
+  totalBytes: number | null
+  freeBytes: number | null
+  /** Windows drive type, e.g. `Fixed` or `Network`. Empty when unknown.
+      Worth showing: a mapped share can appear under several letters, and each
+      one reports the same underlying free space. */
+  driveType: string
+}
+
+export interface MissingGameEntry {
+  id: string
+  name: string
+  exePath: string
+  installDir: string
+  source: Game['source']
+  /** True when the whole install folder is gone, not just the executable. */
+  folderMissing: boolean
+}
+
+export interface MissingScanResult {
+  totalGames: number
+  /** Games actually probed, i.e. everything except those on an offline drive. */
+  checked: number
+  entries: MissingGameEntry[]
+  /** Volume roots that couldn't be reached at all. Their games are skipped
+      instead of reported missing - an unplugged drive is not a deleted game. */
+  offlineRoots: string[]
+  error?: string
+}
+
 export interface TrainerScanResult {
   folder: string
   trainerFiles: number
@@ -310,6 +352,8 @@ export interface GameApi {
   listTrainerFiles(): Promise<TrainerFileInfo[]>
   assignTrainer(gameId: string, sourcePath: string | null): Promise<Game | null>
   getDuplicateGroups(): Promise<DuplicateGroup[]>
+  getDriveUsage(): Promise<DriveUsage[]>
+  scanMissingGames(): Promise<MissingScanResult>
   launchTrainer(id: string): Promise<{ ok: boolean; error?: string }>
   launchWithTrainer(id: string): Promise<{ ok: boolean; error?: string }>
   openTrainerSearch(id: string): Promise<void>

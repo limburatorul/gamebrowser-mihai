@@ -62,6 +62,8 @@ const api: GameApi = {
   assignTrainer: (gameId: string, sourcePath: string | null) =>
     ipcRenderer.invoke('trainers:assign', gameId, sourcePath),
   getDuplicateGroups: () => ipcRenderer.invoke('games:duplicates'),
+  getDriveUsage: () => ipcRenderer.invoke('storage:drives'),
+  scanMissingGames: () => ipcRenderer.invoke('games:scanMissing'),
   scanTrainers: () => ipcRenderer.invoke('trainers:scan'),
   launchTrainer: (id: string) => ipcRenderer.invoke('trainers:launch', id),
   launchWithTrainer: (id: string) => ipcRenderer.invoke('trainers:launchWithGame', id),

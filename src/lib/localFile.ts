@@ -35,6 +35,9 @@ export function formatSize(bytes: number | null): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MB`
   const gb = bytes / (1024 * 1024 * 1024)
+  // Individual games never get this big, but whole-drive totals do, and
+  // "27649 GB" is not a number anyone can read at a glance.
+  if (gb >= 1024) return `${(gb / 1024).toFixed(1)} TB`
   return `${gb < 10 ? gb.toFixed(1) : Math.round(gb)} GB`
 }
 

@@ -1,10 +1,64 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { DuplicateGroup, Game } from '@shared/types'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { DriveUsage, DuplicateGroup, Game, MissingScanResult } from '@shared/types'
 import { formatPlaytime, formatSize } from '../lib/localFile'
+import ConfirmDialog from './ConfirmDialog'
 
 interface Props {
   games: Game[]
   onClose: () => void
+}
+
+/**
+ * One drive as a single stacked bar: the part your games take, the part
+ * everything else takes, and what's left. Seeing games against the whole
+ * volume is the point - a games folder is rarely the only thing on the disk.
+ */
+function DriveRow({ drive }: { drive: DriveUsage }): JSX.Element {
+  const offline = drive.totalBytes === null || drive.freeBytes === null
+  const total = drive.totalBytes ?? 0
+  const used = offline ? 0 : total - (drive.freeBytes ?? 0)
+  const pct = (bytes: number): number => (total > 0 ? (bytes / total) * 100 : 0)
+  // Games can't exceed what the volume reports as used, but sizes are measured
+  // at different times than free space is read, so clamp rather than overflow.
+  const gamesPct = Math.min(pct(drive.gameBytes), pct(used))
+  const otherPct = Math.max(0, pct(used) - gamesPct)
+
+  return (
+    <li className="drive-row">
+      <div className="drive-head">
+        <span className="drive-name">
+          {drive.root}
+          {drive.driveType === 'Network' && <span className="drive-type"> network</span>}
+        </span>
+        <span className="drive-summary">
+          {offline
+            ? 'Capacity unavailable'
+            : `${formatSize(drive.freeBytes)} free of ${formatSize(drive.totalBytes)}`}
+        </span>
+      </div>
+      {!offline && (
+        <span className="drive-track">
+          <span className="drive-fill drive-fill-games" style={{ width: `${gamesPct}%` }} />
+          <span className="drive-fill drive-fill-other" style={{ width: `${otherPct}%` }} />
+        </span>
+      )}
+      <div className="drive-meta">
+        <span>
+          {drive.gameCount} {drive.gameCount === 1 ? 'game' : 'games'} ·{' '}
+          {/* "0 KB" would read as "these games take no room" rather than
+              "the background sweep hasn't got to them yet". */}
+          {drive.gameBytes === 0 && drive.unmeasured > 0
+            ? 'size not measured yet'
+            : `${formatSize(drive.gameBytes)}${
+                drive.unmeasured > 0 ? ` (${drive.unmeasured} not measured yet)` : ''
+              }`}
+        </span>
+        {drive.neverPlayedBytes > 0 && (
+          <span className="drive-unplayed">{formatSize(drive.neverPlayedBytes)} never played</span>
+        )}
+      </div>
+    </li>
+  )
 }
 
 interface BarRow {
@@ -86,6 +140,41 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
   useEffect(() => {
     void window.api.getDuplicateGroups().then(setDuplicates)
   }, [games])
+
+  const [drives, setDrives] = useState<DriveUsage[]>([])
+  useEffect(() => {
+    void window.api.getDriveUsage().then(setDrives)
+  }, [games])
+
+  // The missing-file scan touches the disk once per game, so it runs on demand
+  // rather than every time the dashboard opens.
+  const [missing, setMissing] = useState<MissingScanResult | null>(null)
+  const [scanningMissing, setScanningMissing] = useState(false)
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false)
+  const [removing, setRemoving] = useState(false)
+
+  const runMissingScan = useCallback(async (): Promise<void> => {
+    setScanningMissing(true)
+    try {
+      setMissing(await window.api.scanMissingGames())
+    } finally {
+      setScanningMissing(false)
+    }
+  }, [])
+
+  const removeMissing = useCallback(async (): Promise<void> => {
+    if (!missing) return
+    setRemoving(true)
+    try {
+      await window.api.removeMany(missing.entries.map((e) => e.id))
+      setConfirmingRemoval(false)
+      // Rescan rather than clearing the list: the library the user is looking
+      // at has just changed underneath it.
+      await runMissingScan()
+    } finally {
+      setRemoving(false)
+    }
+  }, [missing, runMissingScan])
   const totalReclaimable = useMemo(
     () => duplicates.reduce((sum, g) => sum + (g.reclaimableBytes ?? 0), 0),
     [duplicates]
@@ -177,6 +266,17 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
           <p className="settings-note">No playtime recorded yet.</p>
         )}
 
+        <h3 className="settings-section">Storage by Drive</h3>
+        {drives.length > 0 ? (
+          <ul className="drive-list">
+            {drives.map((drive) => (
+              <DriveRow key={drive.root} drive={drive} />
+            ))}
+          </ul>
+        ) : (
+          <p className="settings-note">No games with an install folder yet.</p>
+        )}
+
         <h3 className="settings-section">Biggest on Disk</h3>
         {biggestGames.length > 0 ? (
           <BarList rows={biggestGames} />
@@ -223,11 +323,69 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
           <p className="settings-note">Nothing measured yet, or everything measured has been played.</p>
         )}
 
+        <h3 className="settings-section">Missing Files</h3>
+        <p className="settings-note">
+          Checks that every game's executable is still on disk. Deleting a game outside this app leaves its entry
+          behind, where it looks fine until you press Play.
+        </p>
+        <button className="btn" onClick={() => void runMissingScan()} disabled={scanningMissing}>
+          {scanningMissing ? 'Checking…' : 'Check Now'}
+        </button>
+        {missing && (
+          <div className="missing-result">
+            {missing.error && <p className="settings-note backup-list-error">{missing.error}</p>}
+            {missing.offlineRoots.length > 0 && (
+              <p className="settings-note">
+                Skipped {missing.offlineRoots.join(', ')} — not available right now, so games there were left alone.
+              </p>
+            )}
+            {missing.entries.length === 0 ? (
+              <p className="settings-note">All {missing.checked} games checked are still where they should be.</p>
+            ) : (
+              <>
+                <p className="settings-note">
+                  {missing.entries.length} of {missing.checked} games no longer have their executable on disk.
+                </p>
+                <ul className="missing-list">
+                  {missing.entries.map((entry) => (
+                    <li key={entry.id} className="missing-entry">
+                      <div className="missing-name">{entry.name}</div>
+                      <span className="missing-path" title={entry.exePath}>
+                        {entry.exePath}
+                      </span>
+                      <span className="missing-tag">
+                        {entry.source} · {entry.folderMissing ? 'folder gone' : 'folder still there'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <button className="btn btn-danger" onClick={() => setConfirmingRemoval(true)}>
+                  Remove {missing.entries.length} {missing.entries.length === 1 ? 'entry' : 'entries'} from library
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="modal-actions">
           <button className="btn btn-primary" onClick={onClose}>
             Close
           </button>
         </div>
+
+        {confirmingRemoval && missing && (
+          <ConfirmDialog
+            title="Remove missing entries?"
+            message={`This removes ${missing.entries.length} ${
+              missing.entries.length === 1 ? 'entry' : 'entries'
+            } from the library, along with their ratings, tags and playtime. Nothing is deleted from disk — those files are already gone.`}
+            confirmLabel="Remove"
+            danger
+            busy={removing}
+            onCancel={() => setConfirmingRemoval(false)}
+            onConfirm={() => void removeMissing()}
+          />
+        )}
       </div>
     </div>
   )

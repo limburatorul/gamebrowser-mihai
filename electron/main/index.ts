@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, shell, screen } from 'electron'
-import { join, dirname, basename, extname } from 'path'
+import { join, dirname, basename, extname, parse as parsePath } from 'path'
 import { promises as fs, watch, type Dirent } from 'fs'
 import { randomUUID } from 'crypto'
 import { fork, execFile, spawn, type ChildProcess } from 'child_process'
@@ -26,7 +26,10 @@ import type {
   DiskSizeSweepResult,
   TrainerScanResult,
   TrainerFileInfo,
-  DuplicateGroup
+  DuplicateGroup,
+  DriveUsage,
+  MissingGameEntry,
+  MissingScanResult
 } from '../../shared/types'
 import { createZip, extractZip } from './zip'
 import { writeFileAtomic, copyFileAtomic } from './fsAtomic'
@@ -82,8 +85,6 @@ const windowStateFile = join(userDataPath, 'window.json')
 const settingsFile = join(userDataPath, 'settings.json')
 const categoriesFile = join(userDataPath, 'categories.json')
 
-// This fork's self-updater points at its own repo, so it only ever sees
-// releases published there - never the main repo's.
 const UPDATE_REPO = 'limburatorul/gamebrowser-mihai'
 
 let games: Game[] = []
@@ -1183,10 +1184,17 @@ interface SteamManifest {
   installdir: string
 }
 
-async function parseAppManifests(libraryPath: string): Promise<SteamManifest[]> {
+/**
+ * Returns null - not an empty list - when the library folder can't be read.
+ * The difference decides whether games there get removed from the library:
+ * "this folder holds no installed games" and "this folder wasn't there when I
+ * looked" produce the same empty manifest list but mean opposite things, and
+ * one of this user's Steam libraries is a network share.
+ */
+async function parseAppManifests(libraryPath: string): Promise<SteamManifest[] | null> {
   const steamappsDir = join(libraryPath, 'steamapps')
   const entries = await safeReaddir(steamappsDir)
-  if (!entries) return []
+  if (!entries) return null
   const manifests: SteamManifest[] = []
   for (const entry of entries) {
     if (!entry.isFile() || !/^appmanifest_\d+\.acf$/i.test(entry.name)) continue
@@ -1259,10 +1267,18 @@ interface InstalledSteamGame {
 // install paths all failed) so callers can tell "not installed" apart from
 // "installed with zero games" - the two need different handling for sync
 // (skip removal vs. legitimately remove everything).
-async function findInstalledSteamGames(): Promise<InstalledSteamGame[] | null> {
+interface SteamScan {
+  games: InstalledSteamGame[]
+  /** Library folders that could actually be read this run. A game installed
+      under a folder absent from this list is never treated as uninstalled. */
+  readableLibraries: string[]
+}
+
+async function findInstalledSteamGames(): Promise<SteamScan | null> {
   const steamPath = await findSteamPath()
   if (!steamPath) return null
   const libraries = await findSteamLibraryFolders(steamPath)
+  const readableLibraries: string[] = []
   const result: InstalledSteamGame[] = []
   // Several appids can share one installdir - Half-Life 2, Lost Coast and both
   // episodes all live in "common\Half-Life 2", which produced four library
@@ -1272,6 +1288,8 @@ async function findInstalledSteamGames(): Promise<InstalledSteamGame[] | null> {
   const seenAppIds = new Set<number>()
   for (const lib of libraries) {
     const manifests = await parseAppManifests(lib)
+    if (manifests === null) continue
+    readableLibraries.push(lib)
     for (const m of manifests) {
       const appId = Number(m.appid)
       const installDir = join(lib, 'steamapps', 'common', m.installdir)
@@ -1282,7 +1300,7 @@ async function findInstalledSteamGames(): Promise<InstalledSteamGame[] | null> {
       result.push({ appId, name: m.name, installDir })
     }
   }
-  return result
+  return { games: result, readableLibraries }
 }
 
 async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]> {
@@ -1522,12 +1540,34 @@ async function syncUbisoftLibrary(): Promise<{ added: Game[]; removed: Game[] }>
   return { added, removed }
 }
 
+/** True when `child` sits inside `parent`, comparing Windows-style. */
+function isInsideFolder(child: string, parent: string): boolean {
+  const norm = (p: string): string => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
+  const c = norm(child)
+  const p = norm(parent)
+  return c === p || c.startsWith(p + '\\')
+}
+
 async function syncSteamLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
-  const installed = await findInstalledSteamGames()
-  if (installed === null) return { added: [], removed: [] }
-  const installedIds = new Set(installed.map((g) => g.appId))
-  const removed = games.filter((g) => g.source === 'steam' && g.steamAppId !== null && !installedIds.has(g.steamAppId))
-  const added = await addNewSteamGames(installed)
+  const scan = await findInstalledSteamGames()
+  if (scan === null) return { added: [], removed: [] }
+  const installedIds = new Set(scan.games.map((g) => g.appId))
+
+  const removed = games.filter((g) => {
+    if (g.source !== 'steam') return false
+    if (g.steamAppId !== null && installedIds.has(g.steamAppId)) return false
+    // Only drop a game when its own Steam library folder was readable this
+    // run. 24 of this library's 34 Steam manifests live on a network share,
+    // and if that share isn't mounted every one of them looks uninstalled -
+    // which would delete the entries along with their covers and icons.
+    // Anything we couldn't positively check stays put; a stale entry is
+    // cheap, and the Dashboard's missing-files check catches it anyway.
+    // Note this deliberately does not require a steamAppId: an entry that
+    // lost its appid could previously never be removed at all.
+    return scan.readableLibraries.some((lib) => isInsideFolder(g.installDir, lib))
+  })
+
+  const added = await addNewSteamGames(scan.games)
   return { added, removed }
 }
 
@@ -1557,13 +1597,32 @@ async function syncGogLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
   return { added, removed }
 }
 
-// Runs once at startup (see whenReady): checks Steam/Epic/GOG for games that
+// Runs at startup AND on an interval (see whenReady). Startup-only meant that
+// with the app left open, uninstalling a game in Steam was never noticed - 16
+// entries sat here for over a day with their manifests long gone, the same
+// one-shot-task mistake the screenshot and cover sweeps were both fixed for.
+// Checks Steam/Epic/GOG for games that
 // were installed or uninstalled since the last launch and mirrors that into
 // the library, without requiring the user to press the manual Import
 // buttons. Silent either way - same "just updates in the background" pattern
 // as repairIgnoredExePaths, not a popup/toast.
+const LIBRARY_SYNC_INTERVAL_MS = 15 * 60 * 1000
+let librarySyncRunning = false
+
 async function syncPlatformLibraries(): Promise<void> {
   if (!settings.librarySyncEnabled) return
+  // A slow network library can make a run outlast the interval; overlapping
+  // runs would compute `removed` from the same stale snapshot twice.
+  if (librarySyncRunning) return
+  librarySyncRunning = true
+  try {
+    await runPlatformSync()
+  } finally {
+    librarySyncRunning = false
+  }
+}
+
+async function runPlatformSync(): Promise<void> {
   const [steam, epic, gog, ubisoft] = await Promise.all([
     syncSteamLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] })),
     syncEpicLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] })),
@@ -1972,6 +2031,174 @@ function findDuplicateGroups(): DuplicateGroup[] {
   return groups.sort((a, b) => (b.reclaimableBytes ?? 0) - (a.reclaimableBytes ?? 0))
 }
 
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The volume a path lives on, as a comparable key: `D:\`, or a UNC share root.
+ *
+ * Separators are normalised first: Windows accepts either, and the library
+ * really does hold both spellings (`G:\SteamLibrary\…` next to
+ * `G:/XBOX/Anno 1800/`), which `path.parse` would otherwise report as the two
+ * distinct roots `G:\` and `G:/` — one drive showing up as two.
+ */
+function driveRootOf(p: string): string {
+  return parsePath(p.replace(/\//g, '\\')).root.toUpperCase()
+}
+
+interface DriveSpace {
+  totalBytes: number
+  freeBytes: number
+  driveType: string
+}
+
+/**
+ * Capacity and free space for every ready volume, in one shot.
+ *
+ * Deliberately *not* `fs.statfs`: this Electron's Node clamps its `blocks`
+ * field to 32 bits on Windows, so every volume over 4 TiB reports exactly
+ * 4 TiB. It's a quiet wrong answer rather than an error - `bavail` is usually
+ * under the ceiling, so free space stays correct while the total is nonsense -
+ * and this user's game library lives on a 26 TB share. .NET's DriveInfo
+ * returns real Int64 sizes, and throws in the drive type for free.
+ */
+async function readDriveSpace(): Promise<Map<string, DriveSpace>> {
+  const spaces = new Map<string, DriveSpace>()
+  try {
+    const script =
+      '[System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady } | ForEach-Object ' +
+      '{ "{0}|{1}|{2}|{3}" -f $_.Name, $_.TotalSize, $_.AvailableFreeSpace, $_.DriveType }'
+    // Timed out rather than awaited indefinitely: IsReady blocks on a dead
+    // network mapping, and this runs when the dashboard opens.
+    const { stdout } = await execFileAsync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      { windowsHide: true, timeout: 8000 }
+    )
+    for (const line of stdout.split(/\r?\n/)) {
+      const [name, total, free, type] = line.trim().split('|')
+      const totalBytes = Number(total)
+      const freeBytes = Number(free)
+      if (!name || !Number.isFinite(totalBytes) || !Number.isFinite(freeBytes)) continue
+      spaces.set(name.toUpperCase(), { totalBytes, freeBytes, driveType: type ?? '' })
+    }
+  } catch {
+    // PowerShell missing or too slow; the caller falls back to statfs
+  }
+  return spaces
+}
+
+/**
+ * Disk usage per drive, so "the games drive is nearly full" becomes a number
+ * against a specific volume rather than one library-wide total. Sizes come
+ * from the background sweep; free space is read live.
+ */
+async function computeDriveUsage(): Promise<DriveUsage[]> {
+  const byRoot = new Map<string, DriveUsage>()
+  for (const game of games) {
+    const root = driveRootOf(game.installDir)
+    if (!root) continue
+    let entry = byRoot.get(root)
+    if (!entry) {
+      entry = {
+        root,
+        gameCount: 0,
+        gameBytes: 0,
+        unmeasured: 0,
+        neverPlayedBytes: 0,
+        totalBytes: null,
+        freeBytes: null,
+        driveType: ''
+      }
+      byRoot.set(root, entry)
+    }
+    entry.gameCount++
+    if (game.installSizeBytes === null) entry.unmeasured++
+    else {
+      entry.gameBytes += game.installSizeBytes
+      if (game.playtimeSeconds === 0) entry.neverPlayedBytes += game.installSizeBytes
+    }
+  }
+
+  const spaces = await readDriveSpace()
+  await Promise.all(
+    [...byRoot.values()].map(async (entry) => {
+      const known = spaces.get(entry.root)
+      if (known) {
+        entry.totalBytes = known.totalBytes
+        entry.freeBytes = known.freeBytes
+        entry.driveType = known.driveType
+        return
+      }
+      try {
+        const stat = await fs.statfs(entry.root)
+        // See readDriveSpace: `blocks` sitting exactly at the 32-bit ceiling
+        // means the real volume is bigger than this can express. Leave the
+        // numbers null so the UI says nothing rather than something wrong.
+        if (stat.blocks >= 0xffffffff) return
+        entry.totalBytes = stat.blocks * stat.bsize
+        // bavail, not bfree: what this user can actually write to.
+        entry.freeBytes = stat.bavail * stat.bsize
+      } catch {
+        // drive unplugged or not ready; the counts above still stand
+      }
+    })
+  )
+
+  return [...byRoot.values()].sort((a, b) => b.gameBytes - a.gameBytes)
+}
+
+/**
+ * Library entries whose executable is no longer on disk - games deleted
+ * outside the app, which otherwise sit there looking fine until Play does
+ * nothing.
+ *
+ * Each volume is probed once *before* its games are, and everything on an
+ * unreachable one is skipped: an unplugged drive would otherwise report every
+ * game on it as missing, and this list is offered to the user for deletion.
+ */
+async function scanMissingGames(): Promise<MissingScanResult> {
+  const result: MissingScanResult = {
+    totalGames: games.length,
+    checked: 0,
+    entries: [],
+    offlineRoots: []
+  }
+
+  try {
+    const offline = new Set<string>()
+    for (const root of new Set(games.map((g) => driveRootOf(g.installDir)).filter(Boolean))) {
+      if (!(await pathExists(root))) offline.add(root)
+    }
+    result.offlineRoots = [...offline].sort()
+
+    const entries: MissingGameEntry[] = []
+    for (const game of games) {
+      if (offline.has(driveRootOf(game.installDir))) continue
+      result.checked++
+      if (await pathExists(game.exePath)) continue
+      entries.push({
+        id: game.id,
+        name: game.name,
+        exePath: game.exePath,
+        installDir: game.installDir,
+        source: game.source,
+        folderMissing: !(await pathExists(game.installDir))
+      })
+    }
+    result.entries = entries.sort((a, b) => a.name.localeCompare(b.name))
+    return result
+  } catch (e) {
+    return { ...result, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 async function rememberScanRoot(root: string): Promise<void> {
   const key = root.replace(/[\\/]+$/, '').toLowerCase()
   if (settings.scanRoots.some((r) => r.replace(/[\\/]+$/, '').toLowerCase() === key)) return
@@ -2317,7 +2544,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('steam:import', async (): Promise<ImportResult> => {
     const installed = await findInstalledSteamGames()
     if (installed === null) return { imported: 0, error: 'Steam installation not found.' }
-    const created = await addNewSteamGames(installed)
+    const created = await addNewSteamGames(installed.games)
     if (created.length > 0) {
       await saveLibrary()
       broadcastLibrary()
@@ -2719,6 +2946,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('games:duplicates', async (): Promise<DuplicateGroup[]> => findDuplicateGroups())
 
+  ipcMain.handle('storage:drives', async (): Promise<DriveUsage[]> => computeDriveUsage())
+
+  ipcMain.handle('games:scanMissing', async (): Promise<MissingScanResult> => scanMissingGames())
+
   ipcMain.handle('trainers:launch', async (_e, id: string): Promise<{ ok: boolean; error?: string }> => {
     const game = games.find((g) => g.id === id)
     if (!game?.trainerPath) return { ok: false, error: 'No trainer for this game.' }
@@ -3038,6 +3269,12 @@ if (gotSingleInstanceLock) {
     // Also cheap to re-run - it exits immediately once nothing is missing,
     // and skips games already found to have no match this session.
     setInterval(() => void sweepMissingMetadata(), METADATA_SWEEP_INTERVAL_MS)
+
+    // Games get installed and uninstalled while this app sits open for days,
+    // and nothing re-checked that after the startup pass. Cheap to repeat:
+    // it exits immediately when the preference is off, and a pass that finds
+    // no change saves nothing and broadcasts nothing.
+    setInterval(() => void syncPlatformLibraries(), LIBRARY_SYNC_INTERVAL_MS)
 
     // Deliberately NOT chained behind the cover and screenshot sweeps. Those
     // are network-bound and can run for many minutes on a large library, and
