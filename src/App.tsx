@@ -34,6 +34,7 @@ import DashboardDialog from './components/DashboardDialog'
 import WhatToPlayDialog from './components/WhatToPlayDialog'
 import UpdateDialog from './components/UpdateDialog'
 import WhatsNewDialog from './components/WhatsNewDialog'
+import SavesDialog from './components/SavesDialog'
 import Backdrop from './components/Backdrop'
 import SyncToasts, { type SyncToast } from './components/SyncToasts'
 import { loadUiPrefs, saveUiPrefs, type UiPrefs } from './lib/uiPrefs'
@@ -101,6 +102,7 @@ export default function App(): JSX.Element {
   const [contextMenu, setContextMenu] = useState<{ gameId: string; x: number; y: number } | null>(null)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
+  const [savesGameId, setSavesGameId] = useState<string | null>(null)
   const [whatToPlayOpen, setWhatToPlayOpen] = useState(false)
   const [ignoredFolders, setIgnoredFolders] = useState<string[]>([])
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null)
@@ -932,6 +934,10 @@ export default function App(): JSX.Element {
     void window.api.launch(id)
   }
 
+  function handleLaunchAction(id: string, actionId: string): void {
+    void window.api.launch(id, actionId)
+  }
+
   function handleToggleFavorite(id: string): void {
     const game = games.find((g) => g.id === id)
     if (!game) return
@@ -1328,6 +1334,7 @@ export default function App(): JSX.Element {
           visible={detailsBarVisible}
           running={runningIds.has(lastSelectedGame.id)}
           onLaunch={handleLaunch}
+          onLaunchAction={handleLaunchAction}
           onLaunchTrainer={handleLaunchTrainer}
           onLaunchWithTrainer={handleLaunchWithTrainer}
           onFindTrainer={handleFindTrainer}
@@ -1377,6 +1384,7 @@ export default function App(): JSX.Element {
               onClose={() => setContextMenu(null)}
               onLaunch={handleLaunch}
               onSetCompletion={handleSetCompletion}
+              onOpenSaves={setSavesGameId}
               onToggleFavorite={handleToggleFavorite}
               onTogglePlaytimeIgnored={handleTogglePlaytimeIgnored}
               onToggleHidden={handleToggleHidden}
@@ -1475,6 +1483,13 @@ export default function App(): JSX.Element {
       )}
       {whatsNew && (
         <WhatsNewDialog title={whatsNew.title} entries={whatsNew.entries} onClose={() => setWhatsNew(null)} />
+      )}
+
+      {savesGameId && games.find((g) => g.id === savesGameId) && (
+        <SavesDialog
+          game={games.find((g) => g.id === savesGameId) as Game}
+          onClose={() => setSavesGameId(null)}
+        />
       )}
 
       {candidates && (

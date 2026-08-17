@@ -2,13 +2,14 @@ import { useState } from 'react'
 import type { Game } from '@shared/types'
 import CoverImage from './CoverImage'
 import StarRating from './StarRating'
-import { formatDate, formatPlaytime, formatSize } from '../lib/localFile'
+import { formatDate, formatDuration, formatPlaytime, formatSize } from '../lib/localFile'
 
 interface Props {
   game: Game
   visible: boolean
   running: boolean
   onLaunch: (id: string) => void
+  onLaunchAction: (id: string, actionId: string) => void
   onLaunchTrainer: (id: string) => void
   onLaunchWithTrainer: (id: string) => void
   onFindTrainer: (id: string) => void
@@ -30,6 +31,7 @@ export default function GameDetails({
   visible,
   running,
   onLaunch,
+  onLaunchAction,
   onLaunchTrainer,
   onLaunchWithTrainer,
   onFindTrainer,
@@ -61,6 +63,11 @@ export default function GameDetails({
           <span>Last played: {formatDate(game.lastPlayed)}</span>
           <span>Added: {formatDate(game.dateAdded)}</span>
           {game.installSizeBytes !== null && <span>Size: {formatSize(game.installSizeBytes)}</span>}
+          {/* The one that answers "can I finish this?", so it sits next to the
+              time already spent rather than in a panel you have to open. */}
+          {game.hltbMainSeconds !== null && (
+            <span title="Main story, from HowLongToBeat">To beat: {formatDuration(game.hltbMainSeconds)}</span>
+          )}
           <StarRating value={game.rating} onChange={(r) => onRate(game.id, r)} size="lg" />
         </div>
         {/* Own line rather than another item in the meta row: paths are long
@@ -79,6 +86,20 @@ export default function GameDetails({
         <button className="btn btn-primary" onClick={() => onLaunch(game.id)} disabled={running}>
           {running ? 'Running…' : '▶ Play'}
         </button>
+        {/* Rendered flat rather than behind a menu: a game that has these has
+            one or two, and the whole point is that the mod launcher is as
+            reachable as Play. */}
+        {game.actions.map((action) => (
+          <button
+            key={action.id}
+            className="btn"
+            disabled={running}
+            title={action.exePath || 'Starts the game with different arguments'}
+            onClick={() => onLaunchAction(game.id, action.id)}
+          >
+            ▶ {action.name}
+          </button>
+        ))}
         {game.trainerPath && (
           <button
             className="btn"

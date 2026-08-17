@@ -10,6 +10,7 @@ interface Props {
   onClose: () => void
   onLaunch: (id: string) => void
   onSetCompletion: (id: string, status: CompletionStatus | null) => void
+  onOpenSaves: (id: string) => void
   onToggleFavorite: (id: string) => void
   onTogglePlaytimeIgnored: (id: string) => void
   onToggleHidden: (id: string) => void
@@ -30,6 +31,7 @@ export default function ContextMenu({
   onClose,
   onLaunch,
   onSetCompletion,
+  onOpenSaves,
   onToggleFavorite,
   onTogglePlaytimeIgnored,
   onToggleHidden,
@@ -114,6 +116,13 @@ export default function ContextMenu({
           onClick={() => run(onToggleHidden)}
         >
           {game.hidden ? '👁 Unhide' : '👁 Hide'}
+        </button>
+        <button
+          className="context-menu-item"
+          title="Back up or restore this game's save files"
+          onClick={() => run(onOpenSaves)}
+        >
+          💾 Backup / Restore Saves…
         </button>
         <button className="context-menu-item" onClick={() => run(onSetCover)}>
           Set Cover

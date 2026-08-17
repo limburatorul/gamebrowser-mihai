@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, protocol, net, Menu, shell, screen } from 'electron'
 import { join, dirname, basename, extname, parse as parsePath } from 'path'
+import { homedir, userInfo } from 'os'
 import { promises as fs, watch, type Dirent } from 'fs'
 import { randomUUID } from 'crypto'
 import { fork, execFile, spawn, type ChildProcess } from 'child_process'
@@ -31,13 +32,25 @@ import type {
   MissingGameEntry,
   MissingScanResult,
   DeleteFromDiskResult,
-  PlaySession
+  PlaySession,
+  SaveBackupEntry,
+  SaveBackupResult,
+  SaveLocationsResult
 } from '../../shared/types'
 import { createZip, extractZip } from './zip'
 import { writeFileAtomic, copyFileAtomic } from './fsAtomic'
 import { findGogGames, type GogGame } from './gog'
 import { readSteamPlaytime } from './steamPlaytime'
 import { scanTrainerFolder, matchTrainer, trainerSearchUrl } from './trainers'
+import {
+  buildIndexFromManifest,
+  downloadManifest,
+  findSaveEntry,
+  resolveExistingSaves,
+  MANIFEST_MAX_AGE_MS,
+  type Placeholders,
+  type SaveIndex
+} from './saves'
 
 const execFileAsync = promisify(execFile)
 
@@ -135,6 +148,10 @@ async function loadLibrary(): Promise<void> {
       trainerPath: g.trainerPath ?? null,
       launchArgs: g.launchArgs ?? '',
       runAsAdmin: g.runAsAdmin ?? false,
+      actions: g.actions ?? [],
+      hltbMainSeconds: g.hltbMainSeconds ?? null,
+      hltbMainExtraSeconds: g.hltbMainExtraSeconds ?? null,
+      hltbCompletionistSeconds: g.hltbCompletionistSeconds ?? null,
       steamAppId: g.steamAppId ?? null,
       epicAppName: g.epicAppName ?? null,
       gogProductId: g.gogProductId ?? null,
@@ -147,6 +164,85 @@ async function loadLibrary(): Promise<void> {
 
 async function saveLibrary(): Promise<void> {
   await fs.writeFile(libraryFile, JSON.stringify(games, null, 2), 'utf-8')
+}
+
+const saveIndexFile = join(userDataPath, 'saveIndex.json')
+// Where a game's save backups land. Its own folder inside userData so they
+// ride along in the app's own backups without any extra wiring.
+const saveBackupsDir = join(userDataPath, 'save-backups')
+let saveIndex: SaveIndex | null = null
+
+/** Everything the manifest's `<placeholder>` tokens can expand to on this
+    machine. `documents` goes through Electron rather than `~/Documents`
+    because OneDrive redirects it, and getting that wrong means backing up an
+    empty folder and reporting success. */
+function placeholdersFor(game: Game): Placeholders {
+  return {
+    base: game.installDir,
+    home: homedir(),
+    winAppData: process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'),
+    winLocalAppData: process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'),
+    winLocalAppDataLow: join(homedir(), 'AppData', 'LocalLow'),
+    winDocuments: app.getPath('documents'),
+    winPublic: process.env.PUBLIC ?? 'C:\\Users\\Public',
+    winProgramData: process.env.PROGRAMDATA ?? 'C:\\ProgramData',
+    winDir: process.env.WINDIR ?? 'C:\\Windows',
+    osUserName: userInfo().username
+  }
+}
+
+/** The zip writer takes files off disk, so the little index of what came from
+    where has to exist as a file before it can go in. */
+async function writeTempJson(value: unknown): Promise<string> {
+  const path = join(app.getPath('temp'), `gb-saves-${Date.now()}-${Math.random().toString(36).slice(2)}.json`)
+  await fs.writeFile(path, JSON.stringify(value, null, 2), 'utf-8')
+  return path
+}
+
+async function listSaveBackups(gameId: string): Promise<SaveBackupEntry[]> {
+  try {
+    const dir = join(saveBackupsDir, gameId)
+    const out: SaveBackupEntry[] = []
+    for (const name of await fs.readdir(dir)) {
+      if (!name.toLowerCase().endsWith('.zip')) continue
+      const path = join(dir, name)
+      const stat = await fs.stat(path)
+      out.push({ path, createdAt: stat.mtime.toISOString(), sizeBytes: stat.size })
+    }
+    return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  } catch {
+    return []
+  }
+}
+
+async function loadSaveIndex(): Promise<void> {
+  try {
+    saveIndex = JSON.parse(await fs.readFile(saveIndexFile, 'utf-8')) as SaveIndex
+  } catch {
+    saveIndex = null
+  }
+}
+
+/**
+ * Downloads and re-boils the Ludusavi manifest. 17MB to fetch and parse, so it
+ * happens on a schedule and off the startup path - never in front of a user
+ * waiting to back something up.
+ */
+async function refreshSaveIndex(force = false): Promise<{ ok: boolean; games?: number; error?: string }> {
+  if (!force && saveIndex) {
+    const age = Date.now() - Date.parse(saveIndex.builtAt)
+    if (Number.isFinite(age) && age < MANIFEST_MAX_AGE_MS) {
+      return { ok: true, games: Object.keys(saveIndex.byTitle).length }
+    }
+  }
+  try {
+    const index = buildIndexFromManifest(await downloadManifest())
+    saveIndex = index
+    await writeFileAtomic(saveIndexFile, Buffer.from(JSON.stringify(index), 'utf-8'))
+    return { ok: true, games: Object.keys(index.byTitle).length }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 let sessions: PlaySession[] = []
@@ -1388,6 +1484,10 @@ async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]
       tags: [],
       rating: null,
       completion: null,
+      actions: [],
+      hltbMainSeconds: null,
+      hltbMainExtraSeconds: null,
+      hltbCompletionistSeconds: null,
       categoryIds: [],
       excludeFromPlaytime: false,
       hidden: false,
@@ -1449,6 +1549,10 @@ async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
       tags: [],
       rating: null,
       completion: null,
+      actions: [],
+      hltbMainSeconds: null,
+      hltbMainExtraSeconds: null,
+      hltbCompletionistSeconds: null,
       categoryIds: [],
       excludeFromPlaytime: false,
       hidden: false,
@@ -1496,6 +1600,10 @@ async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
       tags: [],
       rating: null,
       completion: null,
+      actions: [],
+      hltbMainSeconds: null,
+      hltbMainExtraSeconds: null,
+      hltbCompletionistSeconds: null,
       categoryIds: [],
       excludeFromPlaytime: false,
       hidden: false,
@@ -1583,6 +1691,10 @@ async function addNewUbisoftGames(installed: InstalledUbisoftGame[]): Promise<Ga
       tags: [],
       rating: null,
       completion: null,
+      actions: [],
+      hltbMainSeconds: null,
+      hltbMainExtraSeconds: null,
+      hltbCompletionistSeconds: null,
       categoryIds: [],
       excludeFromPlaytime: false,
       hidden: false,
@@ -2006,9 +2118,23 @@ function startTrainerWatchers(): void {
 
 // Extracted from the games:launch handler so "Play with Trainer" can reuse it
 // rather than duplicating the playtime bookkeeping.
-async function launchGame(id: string): Promise<void> {
+//
+// An action overrides what gets started, but nothing else: the same playtime
+// tracking, the same running-state broadcast, the same session record. Starting
+// a game through its mod launcher is still playing it.
+async function launchGame(id: string, actionId?: string): Promise<void> {
   const game = games.find((g) => g.id === id)
   if (!game || runningProcesses.has(id)) return
+
+  const action = actionId ? game.actions.find((a) => a.id === actionId) : undefined
+  // An action with no exe of its own means "the game, with different
+  // arguments", so fall back to the game's path rather than refusing.
+  const exePath = action?.exePath?.trim() || game.exePath
+  const launchArgs = action ? action.args : game.launchArgs
+  const runAsAdmin = action ? action.runAsAdmin : game.runAsAdmin
+  // A launcher that lives in its own subfolder generally expects to run from
+  // there; the plain game launch keeps using installDir, as it always has.
+  const workingDir = action?.exePath?.trim() ? dirname(action.exePath) : game.installDir
 
   // Launching via a forked helper keeps the (potentially slow, AV-scanned)
   // CreateProcess call for the game's own .exe off the main process's event
@@ -2017,12 +2143,12 @@ async function launchGame(id: string): Promise<void> {
   // only way to raise UAC from here. The cost is playtime: the elevated game
   // isn't our child, so PowerShell returns immediately and there's nothing to
   // wait on. The Edit dialog says so next to the checkbox.
-  if (game.runAsAdmin) {
-    const args = game.launchArgs.trim()
+  if (runAsAdmin) {
+    const args = launchArgs.trim()
     const psArgs = args ? `-ArgumentList ${JSON.stringify(args)} ` : ''
     const command =
-      `Start-Process -FilePath ${JSON.stringify(game.exePath)} ` +
-      `-WorkingDirectory ${JSON.stringify(game.installDir)} ${psArgs}-Verb RunAs`
+      `Start-Process -FilePath ${JSON.stringify(exePath)} ` +
+      `-WorkingDirectory ${JSON.stringify(workingDir)} ${psArgs}-Verb RunAs`
     try {
       await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command])
     } catch {
@@ -2037,7 +2163,7 @@ async function launchGame(id: string): Promise<void> {
 
   const helper = fork(
     join(__dirname, 'launcher-helper.js'),
-    [game.exePath, game.installDir, ...(game.launchArgs.trim() ? game.launchArgs.trim().split(/\s+/) : [])],
+    [exePath, workingDir, ...(launchArgs.trim() ? launchArgs.trim().split(/\s+/) : [])],
     {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       stdio: 'ignore',
@@ -2504,6 +2630,7 @@ async function runBackup(): Promise<BackupResult> {
         { zipPath: 'settings.json', fsPath: settingsFile },
         { zipPath: 'categories.json', fsPath: categoriesFile },
         { zipPath: 'sessions.json', fsPath: sessionsFile },
+        { zipPath: 'save-backups', fsPath: saveBackupsDir, isDir: true },
         { zipPath: 'covers', fsPath: coversDir, isDir: true },
         { zipPath: 'icons', fsPath: iconsDir, isDir: true },
         { zipPath: 'screenshots', fsPath: screenshotsDir, isDir: true },
@@ -2699,6 +2826,10 @@ function registerIpcHandlers(): void {
       tags: [],
       rating: null,
       completion: null,
+      actions: [],
+      hltbMainSeconds: null,
+      hltbMainExtraSeconds: null,
+      hltbCompletionistSeconds: null,
       categoryIds: [],
       excludeFromPlaytime: false,
       hidden: false,
@@ -2757,6 +2888,10 @@ function registerIpcHandlers(): void {
         tags: [],
         rating: null,
         completion: null,
+      actions: [],
+      hltbMainSeconds: null,
+      hltbMainExtraSeconds: null,
+      hltbCompletionistSeconds: null,
         categoryIds: [],
         excludeFromPlaytime: false,
         hidden: false,
@@ -2833,7 +2968,91 @@ function registerIpcHandlers(): void {
     return { imported: created.length }
   })
 
-  ipcMain.handle('games:launch', async (_e, id: string) => launchGame(id))
+  ipcMain.handle('games:launch', async (_e, id: string, actionId?: string) => launchGame(id, actionId))
+
+  // Opens the search on their own site in the user's browser - a normal visit,
+  // made by a person. Deliberately the whole of the HowLongToBeat integration:
+  // see the note on Game.hltbMainSeconds for why nothing is fetched.
+  ipcMain.handle('games:openHltb', async (_e, id: string): Promise<void> => {
+    const game = games.find((g) => g.id === id)
+    if (!game) return
+    await shell.openExternal(`https://howlongtobeat.com/?q=${encodeURIComponent(game.name)}`)
+  })
+
+  ipcMain.handle('saves:refreshIndex', async () => refreshSaveIndex(true))
+
+  ipcMain.handle('saves:locations', async (_e, id: string): Promise<SaveLocationsResult> => {
+    const game = games.find((g) => g.id === id)
+    if (!game) return { known: false, paths: [], backups: [] }
+    if (!saveIndex) await refreshSaveIndex()
+    const backups = await listSaveBackups(id)
+    if (!saveIndex) return { known: false, paths: [], backups, error: 'Save locations are not downloaded yet.' }
+    const entry = findSaveEntry(saveIndex, game)
+    if (!entry) return { known: false, paths: [], backups }
+    const resolved = await resolveExistingSaves(entry, placeholdersFor(game))
+    return { known: true, paths: resolved.map((r) => r.path), backups }
+  })
+
+  ipcMain.handle('saves:backup', async (_e, id: string): Promise<SaveBackupResult> => {
+    const game = games.find((g) => g.id === id)
+    if (!game) return { ok: false, error: 'Game not found.' }
+    if (!saveIndex) await refreshSaveIndex()
+    if (!saveIndex) return { ok: false, error: 'Could not download the list of save locations.' }
+    const entry = findSaveEntry(saveIndex, game)
+    if (!entry) return { ok: false, error: 'No save location is known for this game.' }
+    const resolved = await resolveExistingSaves(entry, placeholdersFor(game))
+    if (resolved.length === 0) {
+      return { ok: false, error: 'The save folders for this game do not exist yet — has it been played?' }
+    }
+    try {
+      await fs.mkdir(join(saveBackupsDir, id), { recursive: true })
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const dest = join(saveBackupsDir, id, `${stamp}.zip`)
+      // Each location goes in under an index, and a manifest records which
+      // index came from where - that is what makes restore able to put things
+      // back rather than dumping them in one folder.
+      const manifest = resolved.map((r, i) => ({ zipPath: `files/${i}`, originalPath: r.path, isDir: r.isDir }))
+      await createZip(
+        [
+          ...manifest.map((m, i) => ({ zipPath: m.zipPath, fsPath: resolved[i].path, isDir: resolved[i].isDir })),
+          { zipPath: 'saves.json', fsPath: await writeTempJson({ game: game.name, gameId: id, entries: manifest }) }
+        ],
+        dest,
+        () => {}
+      )
+      return { ok: true, path: dest, locations: resolved.map((r) => r.path) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('saves:restore', async (_e, id: string, zipPath: string): Promise<SaveBackupResult> => {
+    try {
+      const staging = join(app.getPath('temp'), `gb-save-restore-${Date.now()}`)
+      await extractZip(zipPath, staging)
+      const meta = JSON.parse(await fs.readFile(join(staging, 'saves.json'), 'utf-8')) as {
+        entries: { zipPath: string; originalPath: string; isDir: boolean }[]
+      }
+      for (const item of meta.entries) {
+        const from = join(staging, item.zipPath)
+        await fs.mkdir(dirname(item.originalPath), { recursive: true })
+        await fs.cp(from, item.originalPath, { recursive: item.isDir, force: true })
+      }
+      await fs.rm(staging, { recursive: true, force: true })
+      return { ok: true, path: zipPath, locations: meta.entries.map((e) => e.originalPath) }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('games:pickActionExe', async (): Promise<string | null> => {
+    const result = await showOpenDialog({
+      properties: ['openFile'],
+      title: 'Select the program this action should start',
+      filters: [{ name: 'Programs', extensions: ['exe', 'bat', 'cmd', 'lnk'] }]
+    })
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
 
   ipcMain.handle(
     'games:update',
@@ -2854,6 +3073,10 @@ function registerIpcHandlers(): void {
           | 'hidden'
           | 'launchArgs'
           | 'runAsAdmin'
+          | 'actions'
+          | 'hltbMainSeconds'
+          | 'hltbMainExtraSeconds'
+          | 'hltbCompletionistSeconds'
         >
       >
     ) => {
@@ -3483,6 +3706,8 @@ if (gotSingleInstanceLock) {
     await loadCategories()
     await loadIgnoredFolders()
     await loadSessions()
+    await loadSaveIndex()
+    await fs.mkdir(saveBackupsDir, { recursive: true })
 
     protocol.handle('local-file', async (request) => {
       const { pathname } = new URL(request.url)
@@ -3552,6 +3777,10 @@ if (gotSingleInstanceLock) {
     startTrainerWatchers()
     // Catch anything that landed while the app was closed.
     if (settings.trainerFolder || settings.watchDownloadsForTrainers) void scanTrainers()
+
+    // Well off the startup path: 17MB to fetch and parse, and nothing needs it
+    // until the user asks to back a game's saves up.
+    setTimeout(() => void refreshSaveIndex(), 90 * 1000)
 
     setTimeout(() => void sweepDiskSizes(), 60 * 1000)
     setInterval(() => void sweepDiskSizes(), METADATA_SWEEP_INTERVAL_MS)

@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.11.0',
+    changes: [
+      'New: back up and restore a game\'s saves, from the right-click menu. It finds the real folders each game saves into — using the Ludusavi manifest, an open list built from PCGamingWiki covering over 12,000 games on Windows — and packs them into a dated archive kept with your library, so they ride along in your normal backups. Restoring writes them back over the current saves and asks first.',
+      'Saves are the one thing here that cannot be fetched again: covers, genres and screenshots all come back on their own. Worth doing before letting Reclaim Space delete a game folder.',
+      'New: extra launch options per game, in the Edit dialog. A mod launcher, a config tool, or the same game with different arguments — each one appears as its own button next to Play. Useful where a game\'s own launcher is what loads your mods and starting the executable directly skips them, which is how Arma 3 behaves.',
+      'New: somewhere to keep how long a game takes — main story, main plus extras, completionist — shown next to your playtime in the bar at the bottom. A button opens the game on howlongtobeat.com in your browser so you can read the numbers off; they are not collected automatically, because reading that site by machine means working around protection its owners put there deliberately.'
+    ]
+  },
+  {
     version: '2.10.0',
     changes: [
       'New: mark where you stand with a game — Backlog, Playing, Finished or Dropped. Set it from the right-click menu, the Edit dialog, or on a whole selection at once from the bar at the bottom. The sidebar gains a Status section with a count for each, and the Dashboard breaks the library down the same way.',

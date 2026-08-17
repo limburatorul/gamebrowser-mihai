@@ -2945,6 +2945,101 @@ input[type='checkbox']:focus-visible {
 /* A 2x2 grid of small targets instead of four full-width menu lines - marking
    a game is the most frequent thing done in here, and four more rows would
    have pushed the destructive actions further down the menu. */
+/* Paths are long and the tail identifies the folder, so they ellipsise from
+   the left - the same treatment the details bar gives an install path. */
+.save-path {
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  color: var(--text-1);
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.save-backup-row {
+  display: grid;
+  grid-template-columns: 1fr 80px auto;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.save-backup-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.save-backup-size {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.hltb-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.hltb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+  min-width: 0;
+}
+
+.action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+/* Name / exe / arguments / remove. Fixed middle columns so a long path cannot
+   squeeze the name field down to nothing. */
+.action-row {
+  display: grid;
+  grid-template-columns: 1fr 130px 1fr 24px;
+  gap: 6px;
+  align-items: center;
+}
+
+.action-name,
+.action-args {
+  min-width: 0;
+}
+
+.action-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.action-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.action-remove:hover {
+  color: var(--danger);
+  background: rgba(229, 72, 77, 0.15);
+}
+
 .cleanup-scopes {
   display: flex;
   gap: 6px;

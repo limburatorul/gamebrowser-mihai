@@ -66,6 +66,23 @@ export interface Game {
   launchArgs: string
   /** Launch elevated. Costs playtime tracking - see launchGame. */
   runAsAdmin: boolean
+  /** Extra launch targets beside Play. Empty for almost every game. */
+  actions: GameAction[]
+  /**
+   * How long the game takes, in seconds, as reported by HowLongToBeat.
+   *
+   * **Entered by hand, never fetched.** HowLongToBeat has no public API, and
+   * reading it automatically today means pulling a rotating endpoint out of
+   * their JavaScript bundle, harvesting anti-bot tokens from an `/init` call
+   * and randomising the User-Agent to look like different browsers — that is
+   * defeating a protection measure, not consuming a feed. The app instead
+   * opens the game's page on their site in the user's own browser, one click,
+   * and these fields are typed in. Same shape as the Find Trainer button, and
+   * the same reasoning that kept this project off flingtrainer.
+   */
+  hltbMainSeconds: number | null
+  hltbMainExtraSeconds: number | null
+  hltbCompletionistSeconds: number | null
   steamAppId: number | null
   epicAppName: string | null
   gogProductId: string | null
@@ -75,6 +92,24 @@ export interface Game {
 export interface Category {
   id: string
   name: string
+}
+
+/**
+ * An extra way to start a game: a mod launcher, a config tool, an alternate
+ * executable. The folder scan picks one exe and that becomes Play — for Arma 3
+ * it picked the game itself, which starts without any of the user's mods,
+ * because the launcher beside it is what loads them.
+ *
+ * `exePath` may be empty, which means "the game's own exe" — that makes an
+ * action that only adds arguments (a windowed profile, a different mod line)
+ * without repeating the path.
+ */
+export interface GameAction {
+  id: string
+  name: string
+  exePath: string
+  args: string
+  runAsAdmin: boolean
 }
 
 /**
@@ -91,6 +126,30 @@ export interface Category {
  * Like `playtimeSecondsHere`, this **cannot be backfilled**: before it existed
  * only running totals were kept, with no record of when the time was spent.
  */
+export interface SaveBackupEntry {
+  path: string
+  createdAt: string
+  sizeBytes: number
+}
+
+export interface SaveLocationsResult {
+  /** False when the manifest has no entry for this game, which is the normal
+      case for anything obscure — not an error, just nothing to offer. */
+  known: boolean
+  /** Save folders that exist right now. Empty means the game has never been
+      played, or keeps its saves somewhere the manifest doesn't cover. */
+  paths: string[]
+  backups: SaveBackupEntry[]
+  error?: string
+}
+
+export interface SaveBackupResult {
+  ok: boolean
+  path?: string
+  locations?: string[]
+  error?: string
+}
+
 export interface PlaySession {
   gameId: string
   startedAt: string
@@ -371,7 +430,13 @@ export interface GameApi {
   rescanFolders(): Promise<FolderScanResult>
   onScanProgress(cb: (progress: ScanProgress | null) => void): () => void
   importCandidates(candidates: GameCandidate[]): Promise<Game[]>
-  launch(id: string): Promise<void>
+  launch(id: string, actionId?: string): Promise<void>
+  pickActionExe(): Promise<string | null>
+  openHltb(id: string): Promise<void>
+  getSaveLocations(id: string): Promise<SaveLocationsResult>
+  backupSaves(id: string): Promise<SaveBackupResult>
+  restoreSaves(id: string, zipPath: string): Promise<SaveBackupResult>
+  refreshSaveIndex(): Promise<{ ok: boolean; games?: number; error?: string }>
   update(
     id: string,
     patch: Partial<
@@ -388,6 +453,10 @@ export interface GameApi {
         | 'hidden'
         | 'launchArgs'
         | 'runAsAdmin'
+        | 'actions'
+        | 'hltbMainSeconds'
+        | 'hltbMainExtraSeconds'
+        | 'hltbCompletionistSeconds'
       >
     >
   ): Promise<Game | null>

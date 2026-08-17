@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Category, CompletionStatus, Game, TrainerFileInfo } from '@shared/types'
+import type { Category, CompletionStatus, Game, GameAction, TrainerFileInfo } from '@shared/types'
 import { COMPLETION_STATUSES, COMPLETION_LABELS } from '@shared/types'
 import CoverImage from './CoverImage'
 import StarRating from './StarRating'
@@ -14,6 +14,10 @@ interface Props {
     tags: string[]
     rating: number | null
     completion: CompletionStatus | null
+    actions: GameAction[]
+    hltbMainSeconds: number | null
+    hltbMainExtraSeconds: number | null
+    hltbCompletionistSeconds: number | null
     categoryIds: string[]
     steamAppId: number | null
     launchArgs: string
@@ -34,6 +38,16 @@ function parseTags(text: string): string[] {
     if (t) seen.add(t)
   }
   return [...seen]
+}
+
+/** Stored in seconds like every other duration; shown and typed in hours. */
+function hoursText(seconds: number | null): string {
+  return seconds === null ? '' : String(Math.round((seconds / 3600) * 10) / 10)
+}
+
+function parseHours(text: string): number | null {
+  const n = Number(text.trim().replace(',', '.'))
+  return text.trim() && Number.isFinite(n) && n > 0 ? Math.round(n * 3600) : null
 }
 
 function parseSteamAppId(text: string): number | null {
@@ -61,6 +75,27 @@ export default function EditGameDialog({
   const [tagsText, setTagsText] = useState(game.tags.join(', '))
   const [rating, setRating] = useState(game.rating)
   const [completion, setCompletion] = useState(game.completion)
+  const [actions, setActions] = useState<GameAction[]>(game.actions)
+  // Held as text so a half-typed "1." doesn't fight the input on every
+  // keystroke; converted on save.
+  const [hltbMain, setHltbMain] = useState(hoursText(game.hltbMainSeconds))
+  const [hltbExtra, setHltbExtra] = useState(hoursText(game.hltbMainExtraSeconds))
+  const [hltbFull, setHltbFull] = useState(hoursText(game.hltbCompletionistSeconds))
+
+  function addAction(): void {
+    setActions((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), name: '', exePath: '', args: '', runAsAdmin: false }
+    ])
+  }
+
+  function updateAction(index: number, patch: Partial<GameAction>): void {
+    setActions((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)))
+  }
+
+  function removeAction(index: number): void {
+    setActions((prev) => prev.filter((_, i) => i !== index))
+  }
   const [categoryIds, setCategoryIds] = useState<string[]>(game.categoryIds)
   const [steamAppIdText, setSteamAppIdText] = useState(game.steamAppId !== null ? String(game.steamAppId) : '')
   const [launchArgs, setLaunchArgs] = useState(game.launchArgs)
@@ -81,6 +116,12 @@ export default function EditGameDialog({
       tags: parseTags(tagsText),
       rating,
       completion,
+      // Unnamed rows are abandoned edits, not options - a button with no label
+      // would be unusable next to Play.
+      actions: actions.filter((a) => a.name.trim()).map((a) => ({ ...a, name: a.name.trim() })),
+      hltbMainSeconds: parseHours(hltbMain),
+      hltbMainExtraSeconds: parseHours(hltbExtra),
+      hltbCompletionistSeconds: parseHours(hltbFull),
       categoryIds,
       steamAppId: parseSteamAppId(steamAppIdText),
       launchArgs: launchArgs.trim(),
@@ -219,6 +260,77 @@ export default function EditGameDialog({
           }}
         />
         <p className="settings-note">Comma-separated. Your own labels, separate from auto-fetched genres.</p>
+
+        <label className="settings-label">How long to beat</label>
+        <div className="hltb-row">
+          {(
+            [
+              ['Main story', hltbMain, setHltbMain],
+              ['Main + extras', hltbExtra, setHltbExtra],
+              ['Completionist', hltbFull, setHltbFull]
+            ] as const
+          ).map(([label, value, set]) => (
+            <label key={label} className="hltb-field">
+              <span>{label}</span>
+              <input
+                className="search-input"
+                value={value}
+                inputMode="decimal"
+                placeholder="hours"
+                onChange={(e) => set(e.target.value)}
+              />
+            </label>
+          ))}
+        </div>
+        <button className="btn" onClick={() => void window.api.openHltb(game.id)}>
+          Look up on HowLongToBeat
+        </button>
+        <p className="settings-note">
+          Opens the game on howlongtobeat.com in your browser so you can read the times off and type them in. They
+          are not fetched automatically — the site has no public API, and reading it by machine means working around
+          the protection they put there on purpose.
+        </p>
+
+        <label className="settings-label">Extra launch options</label>
+        <div className="action-list">
+          {actions.map((action, i) => (
+            <div key={action.id} className="action-row">
+              <input
+                className="search-input action-name"
+                value={action.name}
+                placeholder="Name, e.g. Launcher (mods)"
+                onChange={(e) => updateAction(i, { name: e.target.value })}
+              />
+              <button
+                className="btn action-path"
+                title={action.exePath || 'Uses the game’s own executable'}
+                onClick={async () => {
+                  const picked = await window.api.pickActionExe()
+                  if (picked) updateAction(i, { exePath: picked })
+                }}
+              >
+                {action.exePath ? action.exePath.split('\\').pop() : 'Same exe…'}
+              </button>
+              <input
+                className="search-input action-args"
+                value={action.args}
+                placeholder="Arguments"
+                onChange={(e) => updateAction(i, { args: e.target.value })}
+              />
+              <button className="action-remove" title="Remove" onClick={() => removeAction(i)}>
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+        <button className="btn" onClick={addAction}>
+          Add launch option
+        </button>
+        <p className="settings-note">
+          A second way to start this game — a mod launcher, a config tool, or the same executable with different
+          arguments. It appears next to Play. Useful when the game&apos;s own launcher is what loads your mods, and
+          starting the executable directly skips them.
+        </p>
 
         <label className="settings-label">Status</label>
         <select
