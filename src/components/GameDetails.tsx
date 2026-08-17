@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Game } from '@shared/types'
 import CoverImage from './CoverImage'
 import StarRating from './StarRating'
-import { formatDate, formatDuration, formatPlaytime, formatSize } from '../lib/localFile'
+import { formatDate, formatPlaytime, formatSize } from '../lib/localFile'
 
 interface Props {
   game: Game
@@ -63,11 +63,9 @@ export default function GameDetails({
           <span>Last played: {formatDate(game.lastPlayed)}</span>
           <span>Added: {formatDate(game.dateAdded)}</span>
           {game.installSizeBytes !== null && <span>Size: {formatSize(game.installSizeBytes)}</span>}
-          {/* The one that answers "can I finish this?", so it sits next to the
-              time already spent rather than in a panel you have to open. */}
-          {game.hltbMainSeconds !== null && (
-            <span title="Main story, from HowLongToBeat">To beat: {formatDuration(game.hltbMainSeconds)}</span>
-          )}
+          {/* Time to beat deliberately lives only in the ⓘ details panel, not
+              here as well - the user asked for one home for it rather than two.
+              This meta row is already the busiest line in the app. */}
           <StarRating value={game.rating} onChange={(r) => onRate(game.id, r)} size="lg" />
         </div>
         {/* Own line rather than another item in the meta row: paths are long

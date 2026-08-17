@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Game, SteamGameDetails } from '@shared/types'
-import { toLocalFileUrl } from '../lib/localFile'
+import { formatDuration, toLocalFileUrl } from '../lib/localFile'
 
 interface Props {
   game: Game | null
@@ -15,6 +15,12 @@ export default function DetailsPanel({ game, open, onClose, onLightboxOpenChange
   const [loading, setLoading] = useState(false)
   const [notFound, setNotFound] = useState(false)
   const [lightboxPath, setLightboxPath] = useState<string | null>(null)
+
+  const hasTimeToBeat =
+    game !== null &&
+    (game.hltbMainSeconds !== null ||
+      game.hltbMainExtraSeconds !== null ||
+      game.hltbCompletionistSeconds !== null)
 
   useEffect(() => {
     setDetails(null)
@@ -76,6 +82,33 @@ export default function DetailsPanel({ game, open, onClose, onLightboxOpenChange
           ✕
         </button>
       </div>
+
+      {/* Above the Steam content and outside it on purpose: these times are
+          typed in by the user, so they must survive a game having no Steam
+          page at all — which is exactly the obscure game someone bothered to
+          fill in by hand. */}
+      {game && hasTimeToBeat && (
+        <div className="details-panel-hltb">
+          <span className="details-panel-hltb-label">Time to beat</span>
+          <div className="details-panel-hltb-values">
+            {game.hltbMainSeconds !== null && (
+              <span title="Main story">
+                Main <strong>{formatDuration(game.hltbMainSeconds)}</strong>
+              </span>
+            )}
+            {game.hltbMainExtraSeconds !== null && (
+              <span title="Main story plus side content">
+                + Extras <strong>{formatDuration(game.hltbMainExtraSeconds)}</strong>
+              </span>
+            )}
+            {game.hltbCompletionistSeconds !== null && (
+              <span title="Everything there is to do">
+                100% <strong>{formatDuration(game.hltbCompletionistSeconds)}</strong>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {!game && <p className="details-panel-empty">Select a game to see its Steam page details.</p>}
 
