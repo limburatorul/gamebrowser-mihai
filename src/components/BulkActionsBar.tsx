@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { Category } from '@shared/types'
+import type { Category, CompletionStatus } from '@shared/types'
+import { COMPLETION_STATUSES, COMPLETION_LABELS } from '@shared/types'
 import StarRating from './StarRating'
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
   onDelete: () => void
   onClear: () => void
   onAddToCategory: (categoryId: string) => void
+  onSetCompletion: (status: CompletionStatus | null) => void
   onRate: (rating: number | null) => void
   onUninstall: () => void
   onDeleteFromDisk: () => void
@@ -24,12 +26,14 @@ export default function BulkActionsBar({
   onDelete,
   onClear,
   onAddToCategory,
+  onSetCompletion,
   onRate,
   onUninstall,
   onDeleteFromDisk,
   onHide
 }: Props): JSX.Element {
   const [categorySelect, setCategorySelect] = useState('')
+  const [statusSelect, setStatusSelect] = useState('')
 
   return (
     <div className="details-bar">
@@ -38,6 +42,26 @@ export default function BulkActionsBar({
       </div>
       <div className="details-actions">
         <StarRating value={null} onChange={onRate} />
+        {/* "Clear" is an explicit option rather than the blank one, so setting
+            a status and unsetting it are equally reachable in bulk. */}
+        <select
+          className="select"
+          value={statusSelect}
+          onChange={(e) => {
+            const value = e.target.value
+            if (!value) return
+            onSetCompletion(value === 'clear' ? null : (value as CompletionStatus))
+            setStatusSelect('')
+          }}
+        >
+          <option value="">Set Status…</option>
+          {COMPLETION_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {COMPLETION_LABELS[s].label}
+            </option>
+          ))}
+          <option value="clear">Clear status</option>
+        </select>
         {categories.length > 0 && (
           <select
             className="select"

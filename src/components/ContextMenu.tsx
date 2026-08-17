@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Game } from '@shared/types'
+import type { CompletionStatus, Game } from '@shared/types'
+import { COMPLETION_STATUSES, COMPLETION_LABELS } from '@shared/types'
 
 interface Props {
   game: Game
@@ -8,6 +9,7 @@ interface Props {
   running: boolean
   onClose: () => void
   onLaunch: (id: string) => void
+  onSetCompletion: (id: string, status: CompletionStatus | null) => void
   onToggleFavorite: (id: string) => void
   onTogglePlaytimeIgnored: (id: string) => void
   onToggleHidden: (id: string) => void
@@ -27,6 +29,7 @@ export default function ContextMenu({
   running,
   onClose,
   onLaunch,
+  onSetCompletion,
   onToggleFavorite,
   onTogglePlaytimeIgnored,
   onToggleHidden,
@@ -79,6 +82,25 @@ export default function ContextMenu({
         <button className="context-menu-item" onClick={() => run(onToggleFavorite)}>
           {game.favorite ? '★ Remove Favorite' : '☆ Favorite'}
         </button>
+        {/* A row of glyphs rather than four menu lines: marking a game is the
+            thing you do most often in here, and a submenu would put it two
+            clicks away. Pressing the one already set clears it. */}
+        <div className="context-menu-statuses">
+          {COMPLETION_STATUSES.map((status) => (
+            <button
+              key={status}
+              className={`context-menu-status ${game.completion === status ? 'active' : ''}`}
+              title={game.completion === status ? `Clear "${COMPLETION_LABELS[status].label}"` : COMPLETION_LABELS[status].label}
+              onClick={() => {
+                onSetCompletion(game.id, game.completion === status ? null : status)
+                onClose()
+              }}
+            >
+              <span aria-hidden="true">{COMPLETION_LABELS[status].icon}</span>
+              <span>{COMPLETION_LABELS[status].label}</span>
+            </button>
+          ))}
+        </div>
         <button
           className="context-menu-item"
           title="Keeps tracking this game's playtime, but leaves it out of the most-played list, the library total, and the dashboard"

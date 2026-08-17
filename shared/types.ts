@@ -1,3 +1,15 @@
+export const COMPLETION_STATUSES = ['backlog', 'playing', 'finished', 'dropped'] as const
+export type CompletionStatus = (typeof COMPLETION_STATUSES)[number]
+
+/** Label and glyph for each status, so the sidebar, the Edit dialog, the
+    context menu and the Dashboard cannot drift apart on wording. */
+export const COMPLETION_LABELS: Record<CompletionStatus, { label: string; icon: string }> = {
+  backlog: { label: 'Backlog', icon: '◷' },
+  playing: { label: 'Playing', icon: '▶' },
+  finished: { label: 'Finished', icon: '✓' },
+  dropped: { label: 'Dropped', icon: '✕' }
+}
+
 export interface Game {
   id: string
   name: string
@@ -15,11 +27,24 @@ export interface Game {
       sources were merged into `lastPlayed` with no way to tell them apart, so
       it starts empty on existing libraries and fills as games are launched. */
   lastLaunchedHere: string | null
+  /** Total time played from any source. Our own tracking accumulates into it,
+      and the Steam sync overwrites it whenever Steam's figure is larger, so
+      it is the "everywhere" number. */
   playtimeSeconds: number
+  /** Only the seconds this app measured itself, never touched by the Steam
+      sync. Same caveat as `lastLaunchedHere`: it cannot be backfilled, since
+      before it existed our own tally could be swallowed by Steam's larger
+      figure. Starts at zero and grows from the next session played here. */
+  playtimeSecondsHere: number
   source: 'manual' | 'folder-scan' | 'steam' | 'epic' | 'gog' | 'ubisoft'
   genres: string[]
   tags: string[]
   rating: number | null
+  /** Where the game stands with you, set by hand and never inferred. `null` is
+      "not said", which is deliberately different from `backlog` — most of a
+      large library has simply never been judged, and filing all of it under
+      "I intend to play this" would be a claim the user never made. */
+  completion: CompletionStatus | null
   categoryIds: string[]
   // Keeps counting playtime, but leaves the game out of every aggregate:
   // the sidebar's most-played list, the library total, and the dashboard.
@@ -52,6 +77,27 @@ export interface Category {
   name: string
 }
 
+/**
+ * One session, appended when a game exits. Kept in its own `sessions.json`
+ * rather than on `Game`, because the list grows forever and rewriting every
+ * game's record to append one row would be wasteful.
+ *
+ * **Invariant worth keeping**: sessions are written by exactly the same code
+ * path that adds to `playtimeSecondsHere`, with no threshold, so the sessions
+ * recorded for a game always sum to the seconds this app measured itself.
+ * Elevated launches produce neither, for the same reason — the game is not our
+ * child process, so there is nothing to time.
+ *
+ * Like `playtimeSecondsHere`, this **cannot be backfilled**: before it existed
+ * only running totals were kept, with no record of when the time was spent.
+ */
+export interface PlaySession {
+  gameId: string
+  startedAt: string
+  endedAt: string
+  seconds: number
+}
+
 export interface GameCandidate {
   name: string
   exePath: string
@@ -64,7 +110,25 @@ export interface FolderScanResult {
   scanned: number
   /** Subfolders skipped because they're already in the library. */
   skipped: number
+  /** Subfolders skipped because they're on the ignore list. */
+  ignored: number
   roots: string[]
+}
+
+/**
+ * How a delete-from-disk went, including what it had to escalate to. A plain
+ * ok/error hides the fact that it killed a running game or asked for
+ * elevation, both of which the user should be told about after the fact.
+ */
+export interface DeleteFromDiskResult {
+  ok: boolean
+  error?: string
+  /** Human-readable account of what was attempted, in order. */
+  steps: string[]
+  /** Executables terminated because they were running from inside the folder. */
+  killedProcesses: string[]
+  /** True when it had to take ownership of the tree to get rid of it. */
+  tookOwnership: boolean
 }
 
 export interface ScanProgress {
@@ -317,6 +381,7 @@ export interface GameApi {
         | 'favorite'
         | 'tags'
         | 'rating'
+        | 'completion'
         | 'categoryIds'
         | 'steamAppId'
         | 'excludeFromPlaytime'
@@ -326,12 +391,17 @@ export interface GameApi {
       >
     >
   ): Promise<Game | null>
+  listSessions(): Promise<PlaySession[]>
   setCover(id: string): Promise<Game | null>
   setExePath(id: string): Promise<Game | null>
   remove(id: string): Promise<void>
   removeMany(ids: string[]): Promise<void>
   uninstall(id: string): Promise<{ ok: boolean; error?: string }>
-  deleteFromDisk(id: string): Promise<{ ok: boolean; error?: string }>
+  deleteFromDisk(id: string): Promise<DeleteFromDiskResult>
+  /** Folders the scan should skip from now on, remembered across runs. */
+  getIgnoredFolders(): Promise<string[]>
+  ignoreFolders(paths: string[]): Promise<string[]>
+  unignoreFolder(path: string): Promise<string[]>
   cleanAllNames(): Promise<{ changed: number }>
   fetchCovers(): Promise<CoverFetchResult>
   fetchCoverForOne(id: string): Promise<{ ok: boolean; found: boolean }>

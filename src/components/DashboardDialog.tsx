@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { DriveUsage, DuplicateGroup, Game, MissingScanResult } from '@shared/types'
-import { formatPlaytime, formatSize } from '../lib/localFile'
+import type {
+  CompletionStatus,
+  DriveUsage,
+  DuplicateGroup,
+  Game,
+  MissingScanResult,
+  PlaySession
+} from '@shared/types'
+import { COMPLETION_STATUSES, COMPLETION_LABELS } from '@shared/types'
+import { formatDate, formatDuration, formatPlaytime, formatSize } from '../lib/localFile'
 import ConfirmDialog from './ConfirmDialog'
+import CleanupDialog from './CleanupDialog'
 
 interface Props {
   games: Game[]
@@ -118,6 +127,21 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
       }))
   }, [games])
 
+  // Kept in the declared order rather than sorted by size: it reads as a
+  // progression (waiting → playing → done → abandoned), and a bar list that
+  // reorders itself as you mark games is harder to read at a glance.
+  const statusRows = useMemo<BarRow[]>(() => {
+    const counts = new Map<CompletionStatus, number>()
+    for (const g of games) if (g.completion) counts.set(g.completion, (counts.get(g.completion) ?? 0) + 1)
+    return COMPLETION_STATUSES.filter((s) => counts.has(s)).map((s) => ({
+      label: COMPLETION_LABELS[s].label,
+      value: counts.get(s) ?? 0,
+      display: String(counts.get(s) ?? 0)
+    }))
+  }, [games])
+
+  const unsetCount = useMemo(() => games.filter((g) => !g.completion).length, [games])
+
   const genresByCount = useMemo<BarRow[]>(() => {
     const counts = new Map<string, number>()
     for (const g of games) for (const genre of g.genres) counts.set(genre, (counts.get(genre) ?? 0) + 1)
@@ -142,6 +166,30 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
       .slice(0, 6)
       .map(([genre, secs]) => ({ label: genre, value: secs, display: formatPlaytime(secs) }))
   }, [countedForPlaytime])
+
+  const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [sessions, setSessions] = useState<PlaySession[]>([])
+  useEffect(() => {
+    void window.api.listSessions().then(setSessions)
+  }, [games])
+
+  const history = useMemo(() => {
+    const now = Date.now()
+    const names = new Map(games.map((g) => [g.id, g.name]))
+    const since = (days: number): number => {
+      const cutoff = now - days * 24 * 60 * 60 * 1000
+      return sessions.reduce((sum, s) => (Date.parse(s.endedAt) >= cutoff ? sum + s.seconds : sum), 0)
+    }
+    // Newest first, and only sessions whose game is still in the library -
+    // a removed game leaves its sessions behind, and a row with no name to
+    // put on it is noise.
+    const recent = [...sessions]
+      .filter((s) => names.has(s.gameId))
+      .sort((a, b) => Date.parse(b.endedAt) - Date.parse(a.endedAt))
+      .slice(0, 8)
+      .map((s) => ({ ...s, name: names.get(s.gameId) as string }))
+    return { week: since(7), month: since(30), count: sessions.length, recent }
+  }, [sessions, games])
 
   const [duplicates, setDuplicates] = useState<DuplicateGroup[]>([])
   useEffect(() => {
@@ -259,6 +307,63 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
         <h3 className="settings-section">By Source</h3>
         {sourceRows.length > 0 ? <BarList rows={sourceRows} /> : <p className="settings-note">No games yet.</p>}
 
+        <h3 className="settings-section">By Status</h3>
+        {statusRows.length > 0 ? (
+          <>
+            <BarList rows={statusRows} />
+            {unsetCount > 0 && (
+              <p className="settings-note">
+                {unsetCount} {unsetCount === 1 ? 'game has' : 'games have'} no status set.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="settings-note">
+            Nothing marked yet — set a status from the right-click menu, or on several games at once from the
+            selection bar.
+          </p>
+        )}
+
+        <h3 className="settings-section">Play History</h3>
+        {history.count > 0 ? (
+          <>
+            {/* formatDuration, not formatPlaytime: the latter answers "have
+                you played this at all?" and says "Not played" under a minute,
+                which is nonsense on a figure that is explicitly a length. */}
+            <div className="about-stats dashboard-totals">
+              <div className="about-stat">
+                <span className="about-stat-value">{history.week > 0 ? formatDuration(history.week) : '—'}</span>
+                <span className="about-stat-label">last 7 days</span>
+              </div>
+              <div className="about-stat">
+                <span className="about-stat-value">{history.month > 0 ? formatDuration(history.month) : '—'}</span>
+                <span className="about-stat-label">last 30 days</span>
+              </div>
+              <div className="about-stat">
+                <span className="about-stat-value">{history.count}</span>
+                <span className="about-stat-label">sessions recorded</span>
+              </div>
+            </div>
+            <div className="session-list">
+              {history.recent.map((s) => (
+                <div key={`${s.gameId}-${s.endedAt}`} className="session-row">
+                  <span className="session-name" title={s.name}>
+                    {s.name}
+                  </span>
+                  <span className="session-when">{formatDate(s.endedAt)}</span>
+                  <span className="session-length">{formatDuration(s.seconds)}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="settings-note">
+            Nothing recorded yet. Sessions are logged from the moment this version is installed — the totals above
+            cannot be reconstructed from older playtime, which was only ever kept as a running sum with no record of
+            when the time was spent. Games started outside this app are not counted.
+          </p>
+        )}
+
         <h3 className="settings-section">Top Genres (by game count)</h3>
         {genresByCount.length > 0 ? (
           <BarList rows={genresByCount} />
@@ -322,6 +427,15 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
         ) : (
           <p className="settings-note">No game appears in two different folders.</p>
         )}
+
+        <h3 className="settings-section">Reclaim Space</h3>
+        <p className="settings-note">
+          The lists here say where the space went. This picks games off them and actually gets it back — with a
+          running total as you choose, so you can see whether it is worth it before committing to anything.
+        </p>
+        <button className="btn" onClick={() => setCleanupOpen(true)}>
+          Reclaim Space…
+        </button>
 
         <h3 className="settings-section">Biggest Never Played</h3>
         {biggestUnplayed.length > 0 ? (
@@ -393,6 +507,7 @@ export default function DashboardDialog({ games, onClose }: Props): JSX.Element 
             onConfirm={() => void removeMissing()}
           />
         )}
+        {cleanupOpen && <CleanupDialog games={games} onClose={() => setCleanupOpen(false)} />}
       </div>
     </div>
   )

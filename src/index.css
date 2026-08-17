@@ -382,6 +382,97 @@ input[type='checkbox']:focus-visible {
   text-overflow: ellipsis;
 }
 
+/* The trigger is a button wearing .select, so it inherits that 160px cap and
+   the topbar's minimum width is unaffected by how long a genre name is. The
+   panel is out of flow for the same reason - see MultiSelectFilter. */
+.multiselect {
+  position: relative;
+  display: flex;
+}
+
+.multiselect-trigger {
+  max-width: 160px;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+}
+
+.multiselect-trigger.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.multiselect-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.multiselect-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  min-width: 200px;
+  max-width: 280px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.multiselect-clear {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  color: var(--text-1);
+  cursor: pointer;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.multiselect-clear:hover:not(:disabled) {
+  background: var(--accent-dim);
+  color: var(--text-0);
+}
+
+.multiselect-clear:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The one list in this app allowed its own scrollbar: it is not inside an
+   already-scrolling dialog, and a popup as tall as the window would be worse. */
+.multiselect-options {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.multiselect-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-0);
+  cursor: pointer;
+}
+
+.multiselect-option:hover {
+  background: var(--accent-dim);
+}
+
 .view-toggle {
   display: flex;
   border: 1px solid var(--border);
@@ -785,6 +876,23 @@ input[type='checkbox']:focus-visible {
 
 .sidebar-icon[data-key='what-to-play'] {
   color: #b48ef0;
+}
+
+/* Status glyphs read as a progression: waiting, in flight, done, abandoned. */
+.sidebar-icon[data-key='status:backlog'] {
+  color: #9aa0b4;
+}
+
+.sidebar-icon[data-key='status:playing'] {
+  color: #5fd4c4;
+}
+
+.sidebar-icon[data-key='status:finished'] {
+  color: #7fd18a;
+}
+
+.sidebar-icon[data-key='status:dropped'] {
+  color: #d98a8a;
 }
 
 .sidebar-icon svg {
@@ -2125,8 +2233,6 @@ input[type='checkbox']:focus-visible {
   font-size: 13px;
 }
 
-/* Fork only. Three lines now, so it needs its own line-height and centring
-   rather than inheriting the single-line credit's spacing above it. */
 .about-dedication {
   margin: 0 0 14px;
   color: var(--accent);
@@ -2664,6 +2770,31 @@ input[type='checkbox']:focus-visible {
   white-space: nowrap;
 }
 
+/* Long paths, truncated from the left like everywhere else in the app - the
+   tail is what identifies the folder. */
+.ignored-path {
+  direction: rtl;
+  unicode-bidi: isolate;
+  font-size: 11.5px;
+}
+
+.candidate-row.is-ignored {
+  opacity: 0.5;
+}
+
+.candidate-ignore {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 4px 10px;
+}
+
+.candidate-ignore.active {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+  color: var(--text-0);
+  opacity: 1;
+}
+
 .hidden-unhide,
 .hidden-play {
   flex-shrink: 0;
@@ -2698,6 +2829,19 @@ input[type='checkbox']:focus-visible {
   background: var(--accent-dim);
   border-color: var(--accent-dim);
   color: var(--text-0);
+}
+
+/* Under a section title rather than nested beneath a filter item, so it does
+   not carry the filter list's indent. */
+.sidebar-subchoice-flush {
+  padding: 0 16px 8px;
+}
+
+.sidebar-playtime-empty {
+  margin: 0 16px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-2);
 }
 
 .sidebar-divider {
@@ -2796,6 +2940,177 @@ input[type='checkbox']:focus-visible {
 .context-menu-item:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* A 2x2 grid of small targets instead of four full-width menu lines - marking
+   a game is the most frequent thing done in here, and four more rows would
+   have pushed the destructive actions further down the menu. */
+.cleanup-scopes {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+/* Lets the dialog scroll rather than the list - the rule this stylesheet
+   already follows for the backup and hidden-games lists in Settings. */
+.cleanup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+}
+
+.cleanup-row {
+  display: grid;
+  grid-template-columns: auto 1fr 90px 80px 80px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-1);
+  cursor: pointer;
+}
+
+.cleanup-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cleanup-row:hover {
+  background: var(--accent-dim);
+}
+
+.cleanup-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-0);
+}
+
+.cleanup-tag {
+  color: var(--text-2);
+}
+
+.cleanup-playtime,
+.cleanup-size {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cleanup-size {
+  color: var(--text-0);
+}
+
+/* Pushed to the left so the running total sits away from the buttons - it is
+   information, not another thing to click. */
+.cleanup-total {
+  margin-right: auto;
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.cleanup-outcome {
+  display: grid;
+  grid-template-columns: 16px 1fr 1.4fr;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.cleanup-outcome:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.cleanup-ok {
+  color: #7fd18a;
+}
+
+.cleanup-fail {
+  color: var(--danger);
+}
+
+.cleanup-detail {
+  color: var(--text-2);
+}
+
+/* Fixed columns so the dates and durations line up down the list rather than
+   shifting with each game's name length - same reasoning as the list view. */
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+}
+
+.session-row {
+  display: grid;
+  grid-template-columns: 1fr 130px 80px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.session-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.session-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-0);
+}
+
+.session-when,
+.session-length {
+  font-variant-numeric: tabular-nums;
+}
+
+.session-length {
+  text-align: right;
+  color: var(--text-0);
+}
+
+.context-menu-statuses {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin: 4px 0;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.context-menu-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 8px;
+  color: var(--text-1);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+
+.context-menu-status:hover {
+  background: var(--accent-dim);
+  color: var(--text-0);
+}
+
+.context-menu-status.active {
+  background: var(--accent-dim);
+  color: var(--accent);
 }
 
 .context-menu-item.danger {

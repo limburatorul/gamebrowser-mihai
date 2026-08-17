@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { Category, Game, TrainerFileInfo } from '@shared/types'
+import type { Category, CompletionStatus, Game, TrainerFileInfo } from '@shared/types'
+import { COMPLETION_STATUSES, COMPLETION_LABELS } from '@shared/types'
 import CoverImage from './CoverImage'
 import StarRating from './StarRating'
 
@@ -12,6 +13,7 @@ interface Props {
     favorite: boolean
     tags: string[]
     rating: number | null
+    completion: CompletionStatus | null
     categoryIds: string[]
     steamAppId: number | null
     launchArgs: string
@@ -58,6 +60,7 @@ export default function EditGameDialog({
   const [favorite, setFavorite] = useState(game.favorite)
   const [tagsText, setTagsText] = useState(game.tags.join(', '))
   const [rating, setRating] = useState(game.rating)
+  const [completion, setCompletion] = useState(game.completion)
   const [categoryIds, setCategoryIds] = useState<string[]>(game.categoryIds)
   const [steamAppIdText, setSteamAppIdText] = useState(game.steamAppId !== null ? String(game.steamAppId) : '')
   const [launchArgs, setLaunchArgs] = useState(game.launchArgs)
@@ -77,6 +80,7 @@ export default function EditGameDialog({
       favorite,
       tags: parseTags(tagsText),
       rating,
+      completion,
       categoryIds,
       steamAppId: parseSteamAppId(steamAppIdText),
       launchArgs: launchArgs.trim(),
@@ -215,6 +219,20 @@ export default function EditGameDialog({
           }}
         />
         <p className="settings-note">Comma-separated. Your own labels, separate from auto-fetched genres.</p>
+
+        <label className="settings-label">Status</label>
+        <select
+          className="select"
+          value={completion ?? ''}
+          onChange={(e) => setCompletion((e.target.value || null) as CompletionStatus | null)}
+        >
+          <option value="">Not set</option>
+          {COMPLETION_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {COMPLETION_LABELS[s].label}
+            </option>
+          ))}
+        </select>
 
         <label className="settings-label">Your Rating</label>
         <StarRating value={rating} onChange={setRating} />

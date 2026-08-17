@@ -10,17 +10,22 @@ export type GlassStyle = 'glass' | 'acrylic' | 'frosted'
 export const GLASS_STYLES: GlassStyle[] = ['glass', 'acrylic', 'frosted']
 
 /**
- * Which timestamp the Recently Played filter sorts and filters on.
- * `everywhere` is `lastPlayed`, the later of our own launches and Steam's own
- * record. `here` is `lastLaunchedHere`, only games started from this app.
+ * Whether a "played" figure counts everything, or only what this app measured
+ * itself. Used by two independent settings: which games appear under Recently
+ * Played, and which numbers the sidebar's playtime list shows.
+ *
+ * `everywhere` reads `lastPlayed` / `playtimeSeconds`, both of which merge our
+ * own tracking with whatever Steam reports. `here` reads `lastLaunchedHere` /
+ * `playtimeSecondsHere`, which only this app ever writes.
  */
-export type RecentSource = 'everywhere' | 'here'
+export type PlayedSource = 'everywhere' | 'here'
 
-export const RECENT_SOURCES: RecentSource[] = ['everywhere', 'here']
+export const PLAYED_SOURCES: PlayedSource[] = ['everywhere', 'here']
 
 export interface UiPrefs {
   glassStyle: GlassStyle
-  recentSource: RecentSource
+  recentSource: PlayedSource
+  playtimeSource: PlayedSource
   topBarOpacity: number
   topBarBlur: number
   detailsBarOpacity: number
@@ -42,6 +47,7 @@ export interface UiPrefs {
 export const DEFAULT_UI_PREFS: UiPrefs = {
   glassStyle: 'glass',
   recentSource: 'everywhere',
+  playtimeSource: 'everywhere',
   topBarOpacity: 0.55,
   topBarBlur: 16,
   detailsBarOpacity: 0.55,
@@ -79,9 +85,12 @@ export function loadUiPrefs(): UiPrefs {
       glassStyle: GLASS_STYLES.includes(parsed.glassStyle as GlassStyle)
         ? (parsed.glassStyle as GlassStyle)
         : DEFAULT_UI_PREFS.glassStyle,
-      recentSource: RECENT_SOURCES.includes(parsed.recentSource as RecentSource)
-        ? (parsed.recentSource as RecentSource)
+      recentSource: PLAYED_SOURCES.includes(parsed.recentSource as PlayedSource)
+        ? (parsed.recentSource as PlayedSource)
         : DEFAULT_UI_PREFS.recentSource,
+      playtimeSource: PLAYED_SOURCES.includes(parsed.playtimeSource as PlayedSource)
+        ? (parsed.playtimeSource as PlayedSource)
+        : DEFAULT_UI_PREFS.playtimeSource,
       topBarOpacity: clamp(Number(parsed.topBarOpacity), 0, 1, DEFAULT_UI_PREFS.topBarOpacity),
       topBarBlur: clamp(Number(parsed.topBarBlur), 0, 30, DEFAULT_UI_PREFS.topBarBlur),
       detailsBarOpacity: clamp(Number(parsed.detailsBarOpacity), 0, 1, DEFAULT_UI_PREFS.detailsBarOpacity),

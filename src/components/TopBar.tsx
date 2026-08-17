@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { SortKey, ViewMode } from '@shared/types'
 import { SteamIcon, EpicIcon, GogIcon, UbisoftIcon } from './icons/PlatformIcons'
+import MultiSelectFilter from './MultiSelectFilter'
 
 interface Props {
   search: string
@@ -26,11 +27,11 @@ interface Props {
   tileWidth: number
   onTileWidthChange: (v: number) => void
   genres: string[]
-  genreFilter: string
-  onGenreFilterChange: (v: string) => void
+  genreFilter: string[]
+  onGenreFilterChange: (v: string[]) => void
   tags: string[]
-  tagFilter: string
-  onTagFilterChange: (v: string) => void
+  tagFilter: string[]
+  onTagFilterChange: (v: string[]) => void
   busy: boolean
 }
 
@@ -170,35 +171,25 @@ export default function TopBar({
         </select>
 
         {genres.length > 0 && (
-          <select
-            className="select"
-            value={genreFilter}
-            onChange={(e) => onGenreFilterChange(e.target.value)}
-            title="Filter by genre"
-          >
-            <option value="">All Genres</option>
-            {genres.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
+          <MultiSelectFilter
+            emptyLabel="All Genres"
+            noun="genres"
+            options={genres}
+            selected={genreFilter}
+            onChange={onGenreFilterChange}
+            title="Filter by genre — pick several to see games in any of them"
+          />
         )}
 
         {tags.length > 0 && (
-          <select
-            className="select"
-            value={tagFilter}
-            onChange={(e) => onTagFilterChange(e.target.value)}
-            title="Filter by tag"
-          >
-            <option value="">All Tags</option>
-            {tags.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+          <MultiSelectFilter
+            emptyLabel="All Tags"
+            noun="tags"
+            options={tags}
+            selected={tagFilter}
+            onChange={onTagFilterChange}
+            title="Filter by tag — pick several to see games with any of them"
+          />
         )}
 
         {viewMode === 'grid' && (

@@ -35,6 +35,8 @@ interface Props {
   onUnhide: (id: string) => void
   onUnhideAll: () => void
   onLaunchHidden: (id: string) => void
+  ignoredFolders: string[]
+  onUnignoreFolder: (path: string) => void
 }
 
 const GLASS_STYLE_LABELS: Record<GlassStyle, string> = {
@@ -98,7 +100,9 @@ export default function SettingsDialog({
   hiddenGames,
   onUnhide,
   onUnhideAll,
-  onLaunchHidden
+  onLaunchHidden,
+  ignoredFolders,
+  onUnignoreFolder
 }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('appearance')
   const [clientId, setClientId] = useState(initial.igdbClientId)
@@ -631,6 +635,28 @@ export default function SettingsDialog({
             <button className="btn" type="button" disabled={measuringSizes} onClick={() => void onMeasureDiskSizes()}>
               {measuringSizes ? 'Measuring…' : 'Re-measure All'}
             </button>
+
+            <h3 className="settings-section">Ignored Folders</h3>
+            <p className="settings-note">
+              Folders you marked <strong>Ignore</strong> after a scan. They are skipped by every scan from now on,
+              without being added to your library. An ignore list you cannot see would be a trap, so here it is.
+            </p>
+            {ignoredFolders.length === 0 ? (
+              <p className="settings-note">Nothing is being ignored.</p>
+            ) : (
+              <ul className="hidden-list">
+                {ignoredFolders.map((path) => (
+                  <li key={path} className="hidden-entry">
+                    <span className="hidden-name ignored-path" title={path}>
+                      {path}
+                    </span>
+                    <button className="btn hidden-unhide" type="button" onClick={() => onUnignoreFolder(path)}>
+                      Stop ignoring
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
 
             <h3 className="settings-section">Steam Playtime</h3>
             <p className="settings-note">
