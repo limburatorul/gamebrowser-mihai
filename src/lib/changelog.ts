@@ -6,6 +6,37 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.1.0',
+    changes: [
+      'New: hidden games can be played straight from the list in Settings, without bringing them back into the library first. Settings stays open, so nothing you were editing is lost.',
+      'New: "Recently Played" can be narrowed to games you started from Game Browser, rather than everything Steam also knows about. The choice appears under the filter itself once it is selected.',
+      'Note that "from here" starts out empty on an existing library: until now the two were recorded as one date with no way to tell them apart, so it fills in from the next game you launch.',
+      '"What to Play" has moved to the top of the sidebar, above the filters — it is something you go to, not a way of narrowing the list.'
+    ]
+  },
+  {
+    version: '2.0.1',
+    changes: [
+      'Fixed: the grain on Acrylic and Frosted was far too heavy — it read as dirt on the screen rather than as texture, worst of all where a surface was set very transparent with little blur. It is now roughly the strength Windows uses, and finer.'
+    ]
+  },
+  {
+    version: '2.0.0',
+    changes: [
+      'New: pick how every translucent surface is treated, in Settings under Appearance. "Glass" is the plain blur you have had until now and stays the default.',
+      '"Acrylic" pulls colour up from whatever is behind it and lays a fine grain over the top, the way Windows does it. "Frosted" blurs harder and goes milkier, with almost no colour bleeding through — easier on text when there is bright cover art underneath.',
+      'Your existing blur sliders still apply. The style decides how far each one is pushed, so a bar left at 16px reads as 16 on Glass, 34 on Acrylic and 48 on Frosted.'
+    ]
+  },
+  {
+    version: '1.38.0',
+    changes: [
+      'New: "What to Play" in the sidebar suggests something from the games you have never played, chosen by the genres you actually spend time on — and it tells you which ones, so the pick never looks arbitrary.',
+      'It reads your playtime fresh every time, so after a Steam sync or an evening on something new the suggestions have already moved with you. A game\'s hours are split across its genres, so one tagged with six of them does not count six times, and anything set to "ignore playtime" stays out of it.',
+      'Press "Pick another" for a different one — it will not circle back to something you just saw — or take one of the three alternatives listed underneath.'
+    ]
+  },
+  {
     version: '1.37.0',
     changes: [
       'The backup list and the hidden games list are no longer small boxes with their own scrollbar — they show every entry, and Settings itself scrolls.',

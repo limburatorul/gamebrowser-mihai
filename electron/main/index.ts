@@ -117,6 +117,7 @@ async function loadLibrary(): Promise<void> {
       categoryIds: g.categoryIds ?? [],
       excludeFromPlaytime: g.excludeFromPlaytime ?? false,
       hidden: g.hidden ?? false,
+      lastLaunchedHere: g.lastLaunchedHere ?? null,
       installSizeBytes: g.installSizeBytes ?? null,
       sizeMeasuredAt: g.sizeMeasuredAt ?? null,
       trainerPath: g.trainerPath ?? null,
@@ -1323,6 +1324,7 @@ async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]
       favorite: false,
       dateAdded: new Date().toISOString(),
       lastPlayed: null,
+      lastLaunchedHere: null,
       playtimeSeconds: 0,
       source: 'steam',
       genres: [],
@@ -1381,6 +1383,7 @@ async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
       favorite: false,
       dateAdded: new Date().toISOString(),
       lastPlayed: null,
+      lastLaunchedHere: null,
       playtimeSeconds: 0,
       source: 'epic',
       genres: [],
@@ -1425,6 +1428,7 @@ async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
       favorite: false,
       dateAdded: new Date().toISOString(),
       lastPlayed: null,
+      lastLaunchedHere: null,
       playtimeSeconds: 0,
       source: 'gog',
       genres: [],
@@ -1509,6 +1513,7 @@ async function addNewUbisoftGames(installed: InstalledUbisoftGame[]): Promise<Ga
       favorite: false,
       dateAdded: new Date().toISOString(),
       lastPlayed: null,
+      lastLaunchedHere: null,
       playtimeSeconds: 0,
       source: 'ubisoft',
       genres: [],
@@ -1960,6 +1965,7 @@ async function launchGame(id: string): Promise<void> {
       // user declined the UAC prompt, or the exe is gone
     }
     game.lastPlayed = new Date().toISOString()
+    game.lastLaunchedHere = game.lastPlayed
     await saveLibrary()
     broadcastLibrary()
     return
@@ -1977,6 +1983,14 @@ async function launchGame(id: string): Promise<void> {
 
   runningProcesses.set(id, { child: helper, start: Date.now() })
   broadcastRunning(id, true)
+  // Stamped now, not in finish() below, so a game shows up under "Recently
+  // played - from here" the moment it starts. finish() only runs when the
+  // game exits, which for a long session is hours later, and never at all if
+  // the app is closed first. finish() refreshes it anyway, so the value stays
+  // accurate; this only makes it appear immediately.
+  game.lastLaunchedHere = new Date().toISOString()
+  void saveLibrary().then(broadcastLibrary)
+
   const finish = async (): Promise<void> => {
     const info = runningProcesses.get(id)
     runningProcesses.delete(id)
@@ -1984,6 +1998,7 @@ async function launchGame(id: string): Promise<void> {
       game.playtimeSeconds += Math.round((Date.now() - info.start) / 1000)
     }
     game.lastPlayed = new Date().toISOString()
+    game.lastLaunchedHere = game.lastPlayed
     await saveLibrary()
     broadcastLibrary()
     broadcastRunning(id, false)
@@ -2466,6 +2481,7 @@ function registerIpcHandlers(): void {
       favorite: false,
       dateAdded: new Date().toISOString(),
       lastPlayed: null,
+      lastLaunchedHere: null,
       playtimeSeconds: 0,
       source: 'manual',
       genres: [],
@@ -2521,6 +2537,7 @@ function registerIpcHandlers(): void {
         favorite: false,
         dateAdded: new Date().toISOString(),
         lastPlayed: null,
+        lastLaunchedHere: null,
         playtimeSeconds: 0,
         source: 'folder-scan',
         genres: [],

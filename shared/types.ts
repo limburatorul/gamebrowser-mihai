@@ -7,7 +7,14 @@ export interface Game {
   iconPath: string | null
   favorite: boolean
   dateAdded: string
+  /** Most recent play, from any source - our own launches and whatever Steam
+      reports, whichever is later. This is the "everywhere" figure. */
   lastPlayed: string | null
+  /** Set only when the game was started from this app, so Recently Played can
+      be narrowed to that. Cannot be backfilled: before this existed the two
+      sources were merged into `lastPlayed` with no way to tell them apart, so
+      it starts empty on existing libraries and fills as games are launched. */
+  lastLaunchedHere: string | null
   playtimeSeconds: number
   source: 'manual' | 'folder-scan' | 'steam' | 'epic' | 'gog' | 'ubisoft'
   genres: string[]

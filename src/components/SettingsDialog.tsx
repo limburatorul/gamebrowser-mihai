@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { BackupEntry, BackupPrefs, Game, ScanProgress, Settings } from '@shared/types'
-import type { UiPrefs } from '../lib/uiPrefs'
+import { GLASS_STYLES, type GlassStyle, type UiPrefs } from '../lib/uiPrefs'
 import ColorPicker from './ColorPicker'
 import { ACCENT_PRESETS, SIDEBAR_PRESETS } from '../lib/color'
 
@@ -34,6 +34,13 @@ interface Props {
   hiddenGames: Game[]
   onUnhide: (id: string) => void
   onUnhideAll: () => void
+  onLaunchHidden: (id: string) => void
+}
+
+const GLASS_STYLE_LABELS: Record<GlassStyle, string> = {
+  glass: 'Glass',
+  acrylic: 'Acrylic',
+  frosted: 'Frosted'
 }
 
 type Tab = 'appearance' | 'backup' | 'automation' | 'hidden'
@@ -90,7 +97,8 @@ export default function SettingsDialog({
   scanningTrainers,
   hiddenGames,
   onUnhide,
-  onUnhideAll
+  onUnhideAll,
+  onLaunchHidden
 }: Props): JSX.Element {
   const [tab, setTab] = useState<Tab>('appearance')
   const [clientId, setClientId] = useState(initial.igdbClientId)
@@ -183,6 +191,32 @@ export default function SettingsDialog({
             />
 
             <p className="settings-note">Pick a preset or use the wheel swatch for any custom color.</p>
+
+            <h3 className="settings-section">Glass Style</h3>
+
+            <div className="settings-slider-row">
+              <span className="settings-slider-label">Surfaces</span>
+              <div className="glass-style-toggle">
+                {GLASS_STYLES.map((style) => (
+                  <button
+                    key={style}
+                    type="button"
+                    className={uiPrefs.glassStyle === style ? 'active' : ''}
+                    onClick={() => setPref('glassStyle', style)}
+                  >
+                    {GLASS_STYLE_LABELS[style]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <p className="settings-note">
+              How the top bar, the bar at the bottom, menus and this window are treated. <strong>Glass</strong> is
+              the plain blur. <strong>Acrylic</strong> pulls colour up from whatever is behind and adds a fine
+              grain, the way Windows does it. <strong>Frosted</strong> blurs harder and goes milkier, with almost no
+              colour bleeding through — easier on text when there is bright cover art underneath. The blur sliders
+              below still apply; the style decides how far each one is pushed.
+            </p>
 
             <h3 className="settings-section">Transparency &amp; Blur</h3>
 
@@ -697,6 +731,16 @@ export default function SettingsDialog({
                       <span className="hidden-name" title={game.installDir}>
                         {game.name}
                       </span>
+                      {/* Playable without bringing it back into the library
+                          first - that is the whole point of keeping it here. */}
+                      <button
+                        className="btn hidden-play"
+                        type="button"
+                        title={`Play ${game.name} without unhiding it`}
+                        onClick={() => onLaunchHidden(game.id)}
+                      >
+                        ▶ Play
+                      </button>
                       <button className="btn hidden-unhide" type="button" onClick={() => onUnhide(game.id)}>
                         Unhide
                       </button>

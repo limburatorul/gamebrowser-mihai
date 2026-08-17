@@ -30,6 +30,16 @@ export function formatPlaytime(seconds: number): string {
   return `${hours.toFixed(1)} h`
 }
 
+/**
+ * Like formatPlaytime, but for a span that isn't one game's session count -
+ * a genre total, say. formatPlaytime answers "have you played this?" and
+ * returns "Not played" below a minute, which is nonsense for an aggregate.
+ */
+export function formatDuration(seconds: number): string {
+  if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))} min`
+  return `${(seconds / 3600).toFixed(1)} h`
+}
+
 export function formatSize(bytes: number | null): string {
   if (bytes === null) return 'Not measured'
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`

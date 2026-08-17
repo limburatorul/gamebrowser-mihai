@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Category } from '@shared/types'
 import { formatPlaytime } from '../lib/localFile'
+import type { RecentSource } from '../lib/uiPrefs'
 import { SteamIcon, EpicIcon, GogIcon, UbisoftIcon } from './icons/PlatformIcons'
 import ConfirmDialog from './ConfirmDialog'
 
@@ -43,6 +44,9 @@ interface Props {
   onSelectGame: (id: string) => void
   onOpenAbout: () => void
   onOpenDashboard: () => void
+  onOpenWhatToPlay: () => void
+  recentSource: RecentSource
+  onRecentSourceChange: (source: RecentSource) => void
 }
 
 const ITEMS: { key: LibraryFilter; label: string; icon: JSX.Element | string }[] = [
@@ -77,7 +81,10 @@ export default function Sidebar({
   selectedIds,
   onSelectGame,
   onOpenAbout,
-  onOpenDashboard
+  onOpenDashboard,
+  onOpenWhatToPlay,
+  recentSource,
+  onRecentSourceChange
 }: Props): JSX.Element {
   const [addingCategory, setAddingCategory] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
@@ -154,6 +161,22 @@ export default function Sidebar({
     <nav className="sidebar">
       <div className="sidebar-brand">Game Browser</div>
       <ul className="sidebar-list">
+        {/* Above the filters: it is an action, not a way of narrowing the
+            library, and it is the one thing here you reach for deliberately. */}
+        <li>
+          <button
+            className="sidebar-item"
+            title="Suggests something from your unplayed games, based on the genres you actually spend time on"
+            onClick={onOpenWhatToPlay}
+          >
+            <span className="sidebar-icon" data-key="what-to-play">
+              🎲
+            </span>
+            <span>What to Play</span>
+            <span className="sidebar-count"></span>
+          </button>
+        </li>
+        <li className="sidebar-divider" aria-hidden="true" />
         {ITEMS.map((item) => (
           <li key={item.key}>
             <button
@@ -170,6 +193,26 @@ export default function Sidebar({
               <span>{item.label}</span>
               <span className="sidebar-count">{countFor(item.key)}</span>
             </button>
+            {/* Only while that filter is the active one - a permanent pair of
+                sub-items would be clutter for a choice most people set once. */}
+            {item.key === 'recent' && filter === 'recent' && (
+              <div className="sidebar-subchoice">
+                <button
+                  className={recentSource === 'everywhere' ? 'active' : ''}
+                  title="Anything played recently, including sessions Steam recorded outside this app"
+                  onClick={() => onRecentSourceChange('everywhere')}
+                >
+                  Everywhere
+                </button>
+                <button
+                  className={recentSource === 'here' ? 'active' : ''}
+                  title="Only games you started from Game Browser"
+                  onClick={() => onRecentSourceChange('here')}
+                >
+                  From here
+                </button>
+              </div>
+            )}
           </li>
         ))}
         <li>

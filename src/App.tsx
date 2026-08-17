@@ -29,6 +29,7 @@ import ContextMenu from './components/ContextMenu'
 import DetailsPanel from './components/DetailsPanel'
 import AboutDialog from './components/AboutDialog'
 import DashboardDialog from './components/DashboardDialog'
+import WhatToPlayDialog from './components/WhatToPlayDialog'
 import UpdateDialog from './components/UpdateDialog'
 import WhatsNewDialog from './components/WhatsNewDialog'
 import Backdrop from './components/Backdrop'
@@ -96,6 +97,7 @@ export default function App(): JSX.Element {
   const [contextMenu, setContextMenu] = useState<{ gameId: string; x: number; y: number } | null>(null)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
+  const [whatToPlayOpen, setWhatToPlayOpen] = useState(false)
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null)
   const [checkingForUpdate, setCheckingForUpdate] = useState(false)
   const [sweepingScreenshots, setSweepingScreenshots] = useState(false)
@@ -218,6 +220,7 @@ export default function App(): JSX.Element {
     infoMessage !== null ||
     aboutOpen ||
     dashboardOpen ||
+    whatToPlayOpen ||
     updateCheck !== null ||
     whatsNew !== null
 
@@ -349,7 +352,11 @@ export default function App(): JSX.Element {
   const visibleGames = useMemo(() => {
     let list = browsableGames
     if (filter === 'favorites') list = list.filter((g) => g.favorite)
-    if (filter === 'recent') list = list.filter((g) => g.lastPlayed)
+    // "Recently played" means either everywhere or only from this app - see
+    // RecentSource. Sorting by lastPlayed below still uses the merged value;
+    // only membership of the filter narrows.
+    if (filter === 'recent')
+      list = list.filter((g) => (uiPrefs.recentSource === 'here' ? g.lastLaunchedHere : g.lastPlayed))
     if (filter === 'never-played') list = list.filter((g) => g.playtimeSeconds === 0)
     if (filter === 'has-trainer') list = list.filter((g) => g.trainerPath)
     if (filter === 'no-cover') list = list.filter((g) => !g.coverPath)
@@ -374,8 +381,13 @@ export default function App(): JSX.Element {
           return a.name.localeCompare(b.name)
         case 'dateAdded':
           return b.dateAdded.localeCompare(a.dateAdded)
-        case 'lastPlayed':
-          return (b.lastPlayed ?? '').localeCompare(a.lastPlayed ?? '')
+        case 'lastPlayed': {
+          // Follows the same source as the filter, or narrowing to "from this
+          // app" would still order the list by when Steam last saw them.
+          const when = (g: Game): string =>
+            (uiPrefs.recentSource === 'here' && filter === 'recent' ? g.lastLaunchedHere : g.lastPlayed) ?? ''
+          return when(b).localeCompare(when(a))
+        }
         case 'playtime':
           return b.playtimeSeconds - a.playtimeSeconds
         case 'rating':
@@ -389,7 +401,7 @@ export default function App(): JSX.Element {
       }
     })
     return sorted
-  }, [browsableGames, filter, genreFilter, tagFilter, search, sortKey])
+  }, [browsableGames, filter, genreFilter, tagFilter, search, sortKey, uiPrefs.recentSource])
 
   useEffect(() => {
     visibleGamesRef.current = visibleGames
@@ -1119,6 +1131,10 @@ export default function App(): JSX.Element {
   return (
     <div
       className={`app ${selectedGame || selectedIds.size > 1 ? 'has-details' : ''}`}
+      // Drives the shared glass recipe in index.css. On the app root rather
+      // than <html> so the dialogs, which render inside this tree, pick it up
+      // along with the colour variables below.
+      data-glass={uiPrefs.glassStyle}
       style={
         {
           '--topbar-alpha': String(uiPrefs.topBarOpacity),
@@ -1201,6 +1217,9 @@ export default function App(): JSX.Element {
           }}
           onOpenAbout={() => setAboutOpen(true)}
           onOpenDashboard={() => setDashboardOpen(true)}
+          onOpenWhatToPlay={() => setWhatToPlayOpen(true)}
+          recentSource={uiPrefs.recentSource}
+          onRecentSourceChange={(recentSource) => setUiPrefs((p) => ({ ...p, recentSource }))}
         />
         <main className="main">
           <GameGrid
@@ -1334,6 +1353,9 @@ export default function App(): JSX.Element {
           onUnhideAll={() => {
             for (const g of hiddenGames) void window.api.update(g.id, { hidden: false })
           }}
+          // Deliberately leaves Settings open: closing it would discard any
+          // unsaved keys or backup settings on the other tabs.
+          onLaunchHidden={handleLaunch}
         />
       )}
       {aboutOpen && (
@@ -1347,6 +1369,16 @@ export default function App(): JSX.Element {
         />
       )}
       {dashboardOpen && <DashboardDialog games={games} onClose={() => setDashboardOpen(false)} />}
+      {whatToPlayOpen && (
+        <WhatToPlayDialog
+          games={games}
+          onClose={() => setWhatToPlayOpen(false)}
+          onLaunch={(id) => {
+            setWhatToPlayOpen(false)
+            handleLaunch(id)
+          }}
+        />
+      )}
       {updateCheck?.available && updateCheck.latestVersion && (
         <UpdateDialog
           currentVersion={updateCheck.currentVersion}
