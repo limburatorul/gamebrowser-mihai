@@ -46,6 +46,7 @@ import {
   buildIndexFromManifest,
   downloadManifest,
   findSaveEntry,
+  newestMtimeMs,
   resolveExistingSaves,
   MANIFEST_MAX_AGE_MS,
   type Placeholders,
@@ -124,7 +125,8 @@ let settings: Settings = {
   trainerMirrorFolder: '',
   watchDownloadsForTrainers: true,
   lastBackupAt: null,
-  librarySyncEnabled: true
+  librarySyncEnabled: true,
+  autoBackupSavesOnExit: true
 }
 const runningProcesses = new Map<string, { child: ChildProcess; start: number }>()
 
@@ -212,6 +214,69 @@ async function listSaveBackups(gameId: string): Promise<SaveBackupEntry[]> {
     return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   } catch {
     return []
+  }
+}
+
+/** Kept per game. Ten is enough to walk back past a bad save without the
+    folder growing without limit; the oldest are dropped after each new one. */
+const SAVE_BACKUP_KEEP = 10
+
+async function pruneSaveBackups(gameId: string): Promise<void> {
+  const existing = await listSaveBackups(gameId)
+  for (const old of existing.slice(SAVE_BACKUP_KEEP)) {
+    try {
+      await fs.rm(old.path, { force: true })
+    } catch {
+      // locked or already gone; the next prune will get it
+    }
+  }
+}
+
+/**
+ * Backs up one game's saves.
+ *
+ * `skipIfUnchanged` is what makes the automatic backup on exit sane: starting
+ * and quitting a game without saving leaves the files untouched, and writing an
+ * identical archive each time would fill the retention window with copies of
+ * the same moment.
+ */
+async function backupSavesFor(id: string, skipIfUnchanged: boolean): Promise<SaveBackupResult> {
+  const game = games.find((g) => g.id === id)
+  if (!game) return { ok: false, error: 'Game not found.' }
+  if (!saveIndex) await refreshSaveIndex()
+  if (!saveIndex) return { ok: false, error: 'Could not download the list of save locations.' }
+  const entry = findSaveEntry(saveIndex, game)
+  if (!entry) return { ok: false, error: 'No save location is known for this game.' }
+  const resolved = await resolveExistingSaves(entry, placeholdersFor(game))
+  if (resolved.length === 0) {
+    return { ok: false, error: 'The save folders for this game do not exist yet — has it been played?' }
+  }
+  if (skipIfUnchanged) {
+    const [latest] = await listSaveBackups(id)
+    if (latest && (await newestMtimeMs(resolved)) <= Date.parse(latest.createdAt)) {
+      return { ok: true, unchanged: true, locations: resolved.map((r) => r.path) }
+    }
+  }
+  try {
+    await fs.mkdir(join(saveBackupsDir, id), { recursive: true })
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const dest = join(saveBackupsDir, id, `${stamp}.zip`)
+    // Each location goes in under an index, and a manifest records which
+    // index came from where - that is what makes restore able to put things
+    // back rather than dumping them in one folder.
+    const manifest = resolved.map((r, i) => ({ zipPath: `files/${i}`, originalPath: r.path, isDir: r.isDir }))
+    await createZip(
+      [
+        ...manifest.map((m, i) => ({ zipPath: m.zipPath, fsPath: resolved[i].path, isDir: resolved[i].isDir })),
+        { zipPath: 'saves.json', fsPath: await writeTempJson({ game: game.name, gameId: id, entries: manifest }) }
+      ],
+      dest,
+      () => {}
+    )
+    await pruneSaveBackups(id)
+    return { ok: true, path: dest, locations: resolved.map((r) => r.path) }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
 }
 
@@ -2207,6 +2272,15 @@ async function launchGame(id: string, actionId?: string): Promise<void> {
     await saveLibrary()
     broadcastLibrary()
     broadcastRunning(id, false)
+    // Deliberately last, unawaited and swallowed: zipping a save folder takes
+    // long enough to notice, and the playtime this function just recorded must
+    // not be held up by it — nor lost if it fails. Skips writing anything when
+    // the saves have not changed since the last archive.
+    if (settings.autoBackupSavesOnExit) {
+      void backupSavesFor(id, true).catch(() => {
+        /* a missed automatic backup is not worth surfacing after a game exits */
+      })
+    }
   }
   helper.once('exit', () => void finish())
   helper.once('error', () => void finish())
@@ -2993,38 +3067,7 @@ function registerIpcHandlers(): void {
     return { known: true, paths: resolved.map((r) => r.path), backups }
   })
 
-  ipcMain.handle('saves:backup', async (_e, id: string): Promise<SaveBackupResult> => {
-    const game = games.find((g) => g.id === id)
-    if (!game) return { ok: false, error: 'Game not found.' }
-    if (!saveIndex) await refreshSaveIndex()
-    if (!saveIndex) return { ok: false, error: 'Could not download the list of save locations.' }
-    const entry = findSaveEntry(saveIndex, game)
-    if (!entry) return { ok: false, error: 'No save location is known for this game.' }
-    const resolved = await resolveExistingSaves(entry, placeholdersFor(game))
-    if (resolved.length === 0) {
-      return { ok: false, error: 'The save folders for this game do not exist yet — has it been played?' }
-    }
-    try {
-      await fs.mkdir(join(saveBackupsDir, id), { recursive: true })
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const dest = join(saveBackupsDir, id, `${stamp}.zip`)
-      // Each location goes in under an index, and a manifest records which
-      // index came from where - that is what makes restore able to put things
-      // back rather than dumping them in one folder.
-      const manifest = resolved.map((r, i) => ({ zipPath: `files/${i}`, originalPath: r.path, isDir: r.isDir }))
-      await createZip(
-        [
-          ...manifest.map((m, i) => ({ zipPath: m.zipPath, fsPath: resolved[i].path, isDir: resolved[i].isDir })),
-          { zipPath: 'saves.json', fsPath: await writeTempJson({ game: game.name, gameId: id, entries: manifest }) }
-        ],
-        dest,
-        () => {}
-      )
-      return { ok: true, path: dest, locations: resolved.map((r) => r.path) }
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) }
-    }
-  })
+  ipcMain.handle('saves:backup', async (_e, id: string): Promise<SaveBackupResult> => backupSavesFor(id, false))
 
   ipcMain.handle('saves:restore', async (_e, id: string, zipPath: string): Promise<SaveBackupResult> => {
     try {
@@ -3339,7 +3382,8 @@ function registerIpcHandlers(): void {
       igdbClientId: next.igdbClientId?.trim() ?? '',
       igdbClientSecret: next.igdbClientSecret?.trim() ?? '',
       rawgApiKey: next.rawgApiKey?.trim() ?? '',
-      librarySyncEnabled: !!next.librarySyncEnabled
+      librarySyncEnabled: !!next.librarySyncEnabled,
+      autoBackupSavesOnExit: !!next.autoBackupSavesOnExit
     }
     igdbToken = null
     await saveSettingsToDisk()

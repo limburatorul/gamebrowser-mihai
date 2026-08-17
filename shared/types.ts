@@ -147,6 +147,9 @@ export interface SaveBackupResult {
   ok: boolean
   path?: string
   locations?: string[]
+  /** Succeeded by doing nothing: the saves had not changed since the last
+      archive, so no copy of the same moment was written. */
+  unchanged?: boolean
   error?: string
 }
 
@@ -231,6 +234,9 @@ export interface Settings {
   watchDownloadsForTrainers: boolean
   lastBackupAt: string | null
   librarySyncEnabled: boolean
+  /** Archive a game's saves when it exits. Skips writing anything when the
+      files have not changed, and keeps the last ten per game. */
+  autoBackupSavesOnExit: boolean
 }
 
 export interface BackupPrefs {

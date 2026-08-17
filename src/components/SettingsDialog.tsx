@@ -113,6 +113,7 @@ export default function SettingsDialog({
   const [backupIntervalHours, setBackupIntervalHours] = useState(initial.backupIntervalHours)
   const [backupKeepCount, setBackupKeepCount] = useState(initial.backupKeepCount)
   const [librarySyncEnabled, setLibrarySyncEnabled] = useState(initial.librarySyncEnabled)
+  const [autoBackupSavesOnExit, setAutoBackupSavesOnExit] = useState(initial.autoBackupSavesOnExit)
   const [watchDownloadsForTrainers, setWatchDownloadsForTrainers] = useState(initial.watchDownloadsForTrainers)
   const [backups, setBackups] = useState<BackupEntry[]>([])
   const [backupsError, setBackupsError] = useState<string | null>(null)
@@ -537,6 +538,24 @@ export default function SettingsDialog({
               library automatically, without needing the manual Import buttons.
             </p>
 
+            <h3 className="settings-section">Game Saves</h3>
+
+            <div className="settings-slider-row">
+              <span className="settings-slider-label">Back up saves when a game closes</span>
+              <input
+                type="checkbox"
+                checked={autoBackupSavesOnExit}
+                onChange={(e) => setAutoBackupSavesOnExit(e.target.checked)}
+              />
+            </div>
+
+            <p className="settings-note">
+              When you quit a game, its save folders are archived automatically. Nothing is written if the files have
+              not changed since the last one, so quitting without saving costs nothing, and the ten most recent are
+              kept per game. Save folders are found using an open list built from PCGamingWiki; you can also back up
+              or restore any game by hand from its right-click menu.
+            </p>
+
             <h3 className="settings-section">Screenshot Cache</h3>
             <p className="settings-note">
               Steam screenshots for every game — including manually added ones, matched to a Steam store page by
@@ -802,7 +821,8 @@ export default function SettingsDialog({
                 trainerMirrorFolder: initial.trainerMirrorFolder,
                 watchDownloadsForTrainers,
                 lastBackupAt: initial.lastBackupAt,
-                librarySyncEnabled
+                librarySyncEnabled,
+                autoBackupSavesOnExit
               })
             }
           >

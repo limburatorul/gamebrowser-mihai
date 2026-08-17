@@ -6,6 +6,13 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.12.0',
+    changes: [
+      'Saves are now backed up on their own, when you quit a game — no longer only when you ask. Nothing is written if the files have not changed since the last one, so starting a game and quitting without saving costs nothing, and the ten most recent archives are kept per game.',
+      'It happens after the game closes and never holds anything up; if it fails, your playtime for that session is recorded regardless. There is a switch for it in Settings under Automation, next to the game-save note.'
+    ]
+  },
+  {
     version: '2.11.0',
     changes: [
       'New: back up and restore a game\'s saves, from the right-click menu. It finds the real folders each game saves into — using the Ludusavi manifest, an open list built from PCGamingWiki covering over 12,000 games on Windows — and packs them into a dated archive kept with your library, so they ride along in your normal backups. Restoring writes them back over the current saves and asks first.',

@@ -80,7 +80,8 @@ export default function App(): JSX.Element {
     trainerMirrorFolder: '',
     watchDownloadsForTrainers: true,
     lastBackupAt: null,
-    librarySyncEnabled: true
+    librarySyncEnabled: true,
+    autoBackupSavesOnExit: true
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)

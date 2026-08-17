@@ -198,6 +198,35 @@ export interface ResolvedSave {
   isDir: boolean
 }
 
+/**
+ * Most recent modification time across everything a game saves into.
+ *
+ * This is what stops an automatic backup on exit from writing an identical
+ * archive every time: start and quit a game five times without saving and the
+ * save files have not moved, so there is nothing new to keep.
+ *
+ * Walks directories, which is affordable because save folders are small — the
+ * `depth` cap is only there so a manifest entry pointing somewhere unexpectedly
+ * huge cannot turn a game exit into a filesystem crawl.
+ */
+export async function newestMtimeMs(targets: ResolvedSave[], depth = 6): Promise<number> {
+  let newest = 0
+  const visit = async (path: string, isDir: boolean, left: number): Promise<void> => {
+    try {
+      const stat = await fs.stat(path)
+      if (stat.mtimeMs > newest) newest = stat.mtimeMs
+      if (!isDir || left <= 0) return
+      for (const item of await fs.readdir(path, { withFileTypes: true })) {
+        await visit(join(path, item.name), item.isDirectory(), left - 1)
+      }
+    } catch {
+      // vanished or unreadable mid-walk; it simply doesn't contribute
+    }
+  }
+  for (const t of targets) await visit(t.path, t.isDir, depth)
+  return newest
+}
+
 /** Only locations that actually exist, so nothing offers to back up a folder
     the game has never created. */
 export async function resolveExistingSaves(entry: SaveEntry, p: Placeholders): Promise<ResolvedSave[]> {
