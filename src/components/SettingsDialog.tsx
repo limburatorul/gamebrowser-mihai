@@ -30,6 +30,7 @@ interface Props {
   onPickTrainerFolder: () => Promise<string | null>
   onPickTrainerMirrorFolder: () => Promise<string | null>
   onScanTrainers: () => Promise<void>
+  onPickSaveBackupFolder: () => Promise<string | null>
   scanningTrainers: boolean
   hiddenGames: Game[]
   onUnhide: (id: string) => void
@@ -96,6 +97,7 @@ export default function SettingsDialog({
   onPickTrainerFolder,
   onPickTrainerMirrorFolder,
   onScanTrainers,
+  onPickSaveBackupFolder,
   scanningTrainers,
   hiddenGames,
   onUnhide,
@@ -114,6 +116,7 @@ export default function SettingsDialog({
   const [backupKeepCount, setBackupKeepCount] = useState(initial.backupKeepCount)
   const [librarySyncEnabled, setLibrarySyncEnabled] = useState(initial.librarySyncEnabled)
   const [autoBackupSavesOnExit, setAutoBackupSavesOnExit] = useState(initial.autoBackupSavesOnExit)
+  const [saveBackupFolder, setSaveBackupFolder] = useState(initial.saveBackupFolder)
   const [watchDownloadsForTrainers, setWatchDownloadsForTrainers] = useState(initial.watchDownloadsForTrainers)
   const [backups, setBackups] = useState<BackupEntry[]>([])
   const [backupsError, setBackupsError] = useState<string | null>(null)
@@ -549,11 +552,33 @@ export default function SettingsDialog({
               />
             </div>
 
+            <div className="settings-slider-row">
+              <span className="settings-slider-label">Keep them in</span>
+              <span className="backup-folder-path" title={initial.saveBackupFolder || 'The app’s own data folder'}>
+                {initial.saveBackupFolder || 'App data folder (default)'}
+              </span>
+              <button
+                className="btn"
+                type="button"
+                onClick={async () => {
+                  const picked = await onPickSaveBackupFolder()
+                  if (picked) setSaveBackupFolder(picked)
+                }}
+              >
+                Choose Folder…
+              </button>
+            </div>
+
             <p className="settings-note">
               When you quit a game, its save folders are archived automatically. Nothing is written if the files have
               not changed since the last one, so quitting without saving costs nothing, and the ten most recent are
               kept per game. Save folders are found using an open list built from PCGamingWiki; you can also back up
               or restore any game by hand from its right-click menu.
+            </p>
+            <p className="settings-note">
+              Putting them on another drive is what makes them survive this one failing. While they live in the app
+              data folder they also ride along in your library backup — only the newest per game, so five backups do
+              not mean fifty copies of every save. Point them elsewhere and they stay out of it entirely.
             </p>
 
             <h3 className="settings-section">Screenshot Cache</h3>
@@ -822,7 +847,8 @@ export default function SettingsDialog({
                 watchDownloadsForTrainers,
                 lastBackupAt: initial.lastBackupAt,
                 librarySyncEnabled,
-                autoBackupSavesOnExit
+                autoBackupSavesOnExit,
+                saveBackupFolder
               })
             }
           >

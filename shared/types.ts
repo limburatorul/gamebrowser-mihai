@@ -248,6 +248,10 @@ export interface Settings {
   /** Archive a game's saves when it exits. Skips writing anything when the
       files have not changed, and keeps the last ten per game. */
   autoBackupSavesOnExit: boolean
+  /** Where those archives are kept. Empty means the app's own data folder,
+      which is where they started; pointing it at another drive is the reason
+      this exists, since that is what makes them survive the disk dying. */
+  saveBackupFolder: string
 }
 
 export interface BackupPrefs {
@@ -454,6 +458,7 @@ export interface GameApi {
   backupSaves(id: string): Promise<SaveBackupResult>
   restoreSaves(id: string, zipPath: string): Promise<SaveBackupResult>
   refreshSaveIndex(): Promise<{ ok: boolean; games?: number; error?: string }>
+  pickSaveBackupFolder(): Promise<string | null>
   update(
     id: string,
     patch: Partial<

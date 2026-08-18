@@ -126,7 +126,8 @@ let settings: Settings = {
   watchDownloadsForTrainers: true,
   lastBackupAt: null,
   librarySyncEnabled: true,
-  autoBackupSavesOnExit: true
+  autoBackupSavesOnExit: true,
+  saveBackupFolder: ''
 }
 const runningProcesses = new Map<string, { child: ChildProcess; start: number }>()
 
@@ -171,7 +172,14 @@ async function saveLibrary(): Promise<void> {
 const saveIndexFile = join(userDataPath, 'saveIndex.json')
 // Where a game's save backups land. Its own folder inside userData so they
 // ride along in the app's own backups without any extra wiring.
-const saveBackupsDir = join(userDataPath, 'save-backups')
+const defaultSaveBackupsDir = join(userDataPath, 'save-backups')
+
+/** Honours the user's chosen folder, falling back to the one inside userData
+    that this started as. Read through a function rather than a constant so
+    changing it in Settings takes effect without a restart. */
+function saveBackupsRoot(): string {
+  return settings.saveBackupFolder?.trim() || defaultSaveBackupsDir
+}
 let saveIndex: SaveIndex | null = null
 
 /** Everything the manifest's `<placeholder>` tokens can expand to on this
@@ -203,7 +211,7 @@ async function writeTempJson(value: unknown): Promise<string> {
 
 async function listSaveBackups(gameId: string): Promise<SaveBackupEntry[]> {
   try {
-    const dir = join(saveBackupsDir, gameId)
+    const dir = join(saveBackupsRoot(), gameId)
     const out: SaveBackupEntry[] = []
     for (const name of await fs.readdir(dir)) {
       if (!name.toLowerCase().endsWith('.zip')) continue
@@ -258,9 +266,9 @@ async function backupSavesFor(id: string, skipIfUnchanged: boolean): Promise<Sav
     }
   }
   try {
-    await fs.mkdir(join(saveBackupsDir, id), { recursive: true })
+    await fs.mkdir(join(saveBackupsRoot(), id), { recursive: true })
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const dest = join(saveBackupsDir, id, `${stamp}.zip`)
+    const dest = join(saveBackupsRoot(), id, `${stamp}.zip`)
     // Each location goes in under an index, and a manifest records which
     // index came from where - that is what makes restore able to put things
     // back rather than dumping them in one folder.
@@ -2692,6 +2700,32 @@ async function scanRoots(roots: string[]): Promise<FolderScanResult> {
   return { candidates, scanned, skipped, ignored: ignoredCount, roots: settings.scanRoots }
 }
 
+/**
+ * The most recent save archive for each game, for inclusion in the library
+ * backup.
+ *
+ * Only the newest, deliberately. Ten archives are kept per game and five
+ * library backups are retained, so carrying the whole history would mean fifty
+ * copies of every game's saves across the backup folder. One copy per game in
+ * each backup still answers the question the library backup exists for — the
+ * drive died — while the older nine stay available where they live.
+ *
+ * Skipped entirely when the archives are kept outside userData, since then
+ * they are already somewhere else and copying them back in defeats the point.
+ */
+async function newestSaveArchivePerGame(): Promise<{ zipPath: string; fsPath: string }[]> {
+  if (settings.saveBackupFolder?.trim()) return []
+  const out: { zipPath: string; fsPath: string }[] = []
+  const entries = await safeReaddir(defaultSaveBackupsDir)
+  if (!entries) return out
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const [newest] = await listSaveBackups(entry.name)
+    if (newest) out.push({ zipPath: `save-backups/${entry.name}/${basename(newest.path)}`, fsPath: newest.path })
+  }
+  return out
+}
+
 async function runBackup(): Promise<BackupResult> {
   if (!settings.backupFolder) return { ok: false, error: 'No backup folder set.', settings }
   try {
@@ -2704,7 +2738,7 @@ async function runBackup(): Promise<BackupResult> {
         { zipPath: 'settings.json', fsPath: settingsFile },
         { zipPath: 'categories.json', fsPath: categoriesFile },
         { zipPath: 'sessions.json', fsPath: sessionsFile },
-        { zipPath: 'save-backups', fsPath: saveBackupsDir, isDir: true },
+        ...(await newestSaveArchivePerGame()),
         { zipPath: 'covers', fsPath: coversDir, isDir: true },
         { zipPath: 'icons', fsPath: iconsDir, isDir: true },
         { zipPath: 'screenshots', fsPath: screenshotsDir, isDir: true },
@@ -3075,6 +3109,17 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('saves:refreshIndex', async () => refreshSaveIndex(true))
 
+  ipcMain.handle('saves:pickBackupFolder', async (): Promise<string | null> => {
+    const result = await showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Where should save backups be kept?'
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    settings = { ...settings, saveBackupFolder: result.filePaths[0] }
+    await saveSettingsToDisk()
+    return settings.saveBackupFolder
+  })
+
   ipcMain.handle('saves:locations', async (_e, id: string): Promise<SaveLocationsResult> => {
     const game = games.find((g) => g.id === id)
     if (!game) return { known: false, paths: [], backups: [] }
@@ -3407,7 +3452,8 @@ function registerIpcHandlers(): void {
       igdbClientSecret: next.igdbClientSecret?.trim() ?? '',
       rawgApiKey: next.rawgApiKey?.trim() ?? '',
       librarySyncEnabled: !!next.librarySyncEnabled,
-      autoBackupSavesOnExit: !!next.autoBackupSavesOnExit
+      autoBackupSavesOnExit: !!next.autoBackupSavesOnExit,
+      saveBackupFolder: next.saveBackupFolder?.trim() ?? ''
     }
     igdbToken = null
     await saveSettingsToDisk()
@@ -3777,7 +3823,7 @@ if (gotSingleInstanceLock) {
     await loadIgnoredFolders()
     await loadSessions()
     await loadSaveIndex()
-    await fs.mkdir(saveBackupsDir, { recursive: true })
+    await fs.mkdir(saveBackupsRoot(), { recursive: true })
 
     protocol.handle('local-file', async (request) => {
       const { pathname } = new URL(request.url)

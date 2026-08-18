@@ -22,6 +22,7 @@ interface Props {
   onFetchCovers: () => void
   onCleanNames: () => void
   onOpenSettings: () => void
+  onOpenBigPicture: () => void
   detailsPanelOpen: boolean
   onToggleDetailsPanel: () => void
   tileWidth: number
@@ -53,6 +54,7 @@ export default function TopBar({
   onFetchCovers,
   onCleanNames,
   onOpenSettings,
+  onOpenBigPicture,
   detailsPanelOpen,
   onToggleDetailsPanel,
   tileWidth,
@@ -230,6 +232,14 @@ export default function TopBar({
           onClick={onToggleDetailsPanel}
         >
           ⓘ
+        </button>
+
+        <button
+          className="btn icon-btn"
+          title="Big Picture mode — fullscreen, for a controller (F11)"
+          onClick={onOpenBigPicture}
+        >
+          🎮
         </button>
 
         <button className="btn icon-btn" title="Settings" onClick={onOpenSettings}>

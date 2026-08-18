@@ -6,6 +6,14 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.14.0',
+    changes: [
+      'New: Big Picture mode — a fullscreen view meant for a controller and a television. Press F11 or the pad button in the top bar. Big cover art, a few rows to move between, A or Enter to play, B or Escape to come back. It works with the keyboard alone if you have no controller plugged in.',
+      'New: save backups can be kept somewhere other than the app data folder — Settings → Automation → Game Saves. Putting them on a second drive is what makes them survive the first one failing.',
+      'While they live in the app data folder your library backup carries only the newest archive per game, not all ten. Five retained backups would otherwise have meant fifty copies of the saves of every game.'
+    ]
+  },
+  {
     version: '2.13.0',
     changes: [
       'Game Browser is now installed rather than run from a loose .exe, and starts in about a second instead of eight. The old build repacked itself into a temporary folder on every single launch — around 70 MB, every time you double-clicked it — and that was almost all of the wait. Measured on a 544-game library: 8.9s before, 1.0s now.',

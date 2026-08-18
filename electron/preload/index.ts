@@ -39,6 +39,7 @@ const api: GameApi = {
   backupSaves: (id: string) => ipcRenderer.invoke('saves:backup', id),
   restoreSaves: (id: string, zipPath: string) => ipcRenderer.invoke('saves:restore', id, zipPath),
   refreshSaveIndex: () => ipcRenderer.invoke('saves:refreshIndex'),
+  pickSaveBackupFolder: () => ipcRenderer.invoke('saves:pickBackupFolder'),
   update: (id: string, patch) => ipcRenderer.invoke('games:update', id, patch),
   listSessions: () => ipcRenderer.invoke('sessions:list'),
   setCover: (id: string) => ipcRenderer.invoke('games:setCover', id),

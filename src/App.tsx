@@ -35,6 +35,7 @@ import WhatToPlayDialog from './components/WhatToPlayDialog'
 import UpdateDialog from './components/UpdateDialog'
 import WhatsNewDialog from './components/WhatsNewDialog'
 import SavesDialog from './components/SavesDialog'
+import BigPictureView from './components/BigPictureView'
 import Backdrop from './components/Backdrop'
 import SyncToasts, { type SyncToast } from './components/SyncToasts'
 import { loadUiPrefs, saveUiPrefs, type UiPrefs } from './lib/uiPrefs'
@@ -80,7 +81,8 @@ export default function App(): JSX.Element {
     watchDownloadsForTrainers: true,
     lastBackupAt: null,
     librarySyncEnabled: true,
-    autoBackupSavesOnExit: true
+    autoBackupSavesOnExit: true,
+    saveBackupFolder: ''
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
@@ -103,6 +105,7 @@ export default function App(): JSX.Element {
   const [aboutOpen, setAboutOpen] = useState(false)
   const [dashboardOpen, setDashboardOpen] = useState(false)
   const [savesGameId, setSavesGameId] = useState<string | null>(null)
+  const [bigPicture, setBigPicture] = useState(false)
   const [whatToPlayOpen, setWhatToPlayOpen] = useState(false)
   const [ignoredFolders, setIgnoredFolders] = useState<string[]>([])
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(null)
@@ -324,8 +327,21 @@ export default function App(): JSX.Element {
         handleLaunch(anchorId)
       }
     }
+    // Its own listener, outside the guards above: Big Picture should be
+    // reachable even with a game selected or the grid focused, and it is the
+    // one shortcut people expect to work everywhere.
+    const onBigPictureKey = (e: KeyboardEvent): void => {
+      if (e.key === 'F11' && !anyModalOpen) {
+        e.preventDefault()
+        setBigPicture(true)
+      }
+    }
+    window.addEventListener('keydown', onBigPictureKey)
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keydown', onBigPictureKey)
+    }
   }, [contextMenu, anyModalOpen, anchorId, columns])
 
   const availableGenres = useMemo(() => {
@@ -1206,6 +1222,20 @@ export default function App(): JSX.Element {
 
   const editingGame = games.find((g) => g.id === editingId) ?? null
 
+  // Returned before the desktop layout rather than layered over it: nothing
+  // underneath should keep listening for keys or repainting a 544-tile grid
+  // while you are three metres away with a controller.
+  if (bigPicture) {
+    return (
+      <BigPictureView
+        games={browsableGames}
+        runningIds={runningIds}
+        onLaunch={handleLaunch}
+        onExit={() => setBigPicture(false)}
+      />
+    )
+  }
+
   return (
     <div
       className={`app ${selectedGame || selectedIds.size > 1 ? 'has-details' : ''}`}
@@ -1257,6 +1287,7 @@ export default function App(): JSX.Element {
         onFetchCovers={handleFetchCovers}
         onCleanNames={handleCleanNames}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenBigPicture={() => setBigPicture(true)}
         detailsPanelOpen={detailsPanelOpen}
         onToggleDetailsPanel={() => setDetailsPanelOpen((v) => !v)}
         tileWidth={tileWidth}
@@ -1433,6 +1464,13 @@ export default function App(): JSX.Element {
           onPickTrainerFolder={handlePickTrainerFolder}
           onPickTrainerMirrorFolder={handlePickTrainerMirrorFolder}
           onScanTrainers={handleScanTrainers}
+          onPickSaveBackupFolder={async () => {
+            const picked = await window.api.pickSaveBackupFolder()
+            // Main persists it immediately, so mirror it here rather than
+            // waiting for Save - the path is shown in this same dialog.
+            if (picked) setSettings((s) => ({ ...s, saveBackupFolder: picked }))
+            return picked
+          }}
           scanningTrainers={scanningTrainers}
           hiddenGames={hiddenGames}
           onUnhide={(id) => void window.api.update(id, { hidden: false })}
