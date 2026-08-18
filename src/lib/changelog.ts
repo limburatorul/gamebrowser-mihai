@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.13.0',
+    changes: [
+      'Game Browser is now installed rather than run from a loose .exe, and starts in about a second instead of eight. The old build repacked itself into a temporary folder on every single launch — around 70 MB, every time you double-clicked it — and that was almost all of the wait. Measured on a 544-game library: 8.9s before, 1.0s now.',
+      'It installs for your account only, so it never asks for administrator rights, and you choose the folder.',
+      'Updates now install themselves. Accepting one downloads the installer, runs it quietly with the app closed, and starts it back up when it is finished.',
+      'Coming from the old version: the first update shows you the installer window instead of doing it silently, since there is no existing installation for it to reuse — pick a folder and carry on. After that you can delete the old "Game Browser <version>.exe"; nothing needs it any more. Your library, covers, saves and settings are untouched either way.'
+    ]
+  },
+  {
     version: '2.12.0',
     changes: [
       'Saves are now backed up on their own, when you quit a game — no longer only when you ask. Nothing is written if the files have not changed since the last one, so starting a game and quitting without saving costs nothing, and the ten most recent archives are kept per game.',

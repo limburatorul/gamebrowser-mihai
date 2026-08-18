@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Game } from '@shared/types'
-import { COMPLETION_LABELS } from '@shared/types'
+import { COMPLETION_LABELS, PLATFORM_SOURCES } from '@shared/types'
 import { formatPlaytime, formatSize } from '../lib/localFile'
 import ConfirmDialog from './ConfirmDialog'
 
@@ -9,7 +9,6 @@ interface Props {
   onClose: () => void
 }
 
-const PLATFORM_SOURCES = new Set<Game['source']>(['steam', 'epic', 'gog', 'ubisoft'])
 
 type Scope = 'never-played' | 'finished' | 'all'
 

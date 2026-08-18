@@ -2765,31 +2765,17 @@ function compareVersions(a: string, b: string): number {
   return 0
 }
 
-const PORTABLE_EXE_NAME_RE = /^Game Browser (\d+\.\d+\.\d+)\.exe$/
-
-// The portable NSIS wrapper self-extracts to a throwaway %TEMP% folder on
-// every launch, so `process.execPath` never points at the file the user
-// actually keeps/double-clicks - electron-builder's portable target sets
-// PORTABLE_EXECUTABLE_DIR/_FILE env vars for exactly this reason. Every
-// startup, sweep that real directory for older sibling exes (leftovers from
-// a previous update, including ones a locked-file race left behind last
-// time) and remove them now that they're very likely unlocked.
-async function cleanupOldPortableExes(): Promise<void> {
-  const dir = process.env.PORTABLE_EXECUTABLE_DIR
-  if (!dir) return
-  const currentVersion = app.getVersion()
-  const entries = await safeReaddir(dir)
-  if (!entries) return
-  for (const entry of entries) {
-    if (!entry.isFile()) continue
-    const match = entry.name.match(PORTABLE_EXE_NAME_RE)
-    if (!match) continue
-    if (compareVersions(match[1], currentVersion) < 0) {
-      await fs.unlink(join(dir, entry.name)).catch(() => {
-        // still locked (that old instance may not have fully exited yet) - leave it, next launch retries
-      })
-    }
-  }
+/**
+ * True when this process is the old portable build rather than an installed
+ * one. electron-builder's portable target sets these env vars; the installed
+ * app never has them.
+ *
+ * It matters for updating, because a portable build's `process.execPath` sits
+ * in a throwaway `%TEMP%` extraction folder — telling an installer to install
+ * *there* would put the app somewhere Windows wipes.
+ */
+function isPortableBuild(): boolean {
+  return Boolean(process.env.PORTABLE_EXECUTABLE_DIR || process.env.PORTABLE_EXECUTABLE_FILE)
 }
 
 interface GithubReleaseAsset {
@@ -2834,14 +2820,47 @@ async function checkForUpdate(): Promise<UpdateCheckResult> {
   }
 }
 
+/**
+ * Hands off to the downloaded installer and arranges for the app to come back.
+ *
+ * The awkward part is that the installer has to replace the very executable
+ * that is running it, so this app must be gone before it can finish — which
+ * means nothing in this process can wait for it or start anything afterwards.
+ * A detached one-shot .cmd does both: it runs the installer, waits, and only
+ * then starts the app again. This process just quits.
+ *
+ * **Silent only when we are already installed.** A silent NSIS run reuses the
+ * remembered install directory, which is right for an upgrade but has nowhere
+ * to come from on the portable build everyone is currently running — those get
+ * the visible installer once, and pick a folder. `/S` also suppresses the
+ * installer's own "run after finish", which is the other reason the script
+ * launches the app itself rather than leaving it to `runAfterFinish`.
+ */
+async function runInstallerAndRelaunch(installerPath: string): Promise<void> {
+  const silent = !isPortableBuild()
+  const exeToStart = silent ? process.execPath : ''
+  const scriptPath = join(app.getPath('temp'), `gb-update-${Date.now()}.cmd`)
+  const lines = [
+    '@echo off',
+    // Give this process a moment to actually be gone; the installer refuses to
+    // replace files still held open.
+    'ping -n 3 127.0.0.1 >nul',
+    silent ? `start /wait "" "${installerPath}" /S` : `start /wait "" "${installerPath}"`,
+    exeToStart ? `start "" "${exeToStart}"` : '',
+    `del "%~f0"`
+  ].filter(Boolean)
+  await fs.writeFile(scriptPath, lines.join('\r\n'), 'utf-8')
+  const child = spawn('cmd.exe', ['/c', scriptPath], { detached: true, stdio: 'ignore', windowsHide: true })
+  child.unref()
+}
+
 async function downloadUpdateAndRestart(
   assetUrl: string,
   assetSize: number,
   version: string
 ): Promise<UpdateApplyResult> {
-  const dir = process.env.PORTABLE_EXECUTABLE_DIR
-  if (!dir) {
-    return { ok: false, error: "Self-update only works from the portable .exe, not `npm run dev`." }
+  if (!app.isPackaged) {
+    return { ok: false, error: 'Self-update only works from a built app, not `npm run dev`.' }
   }
   try {
     return await withTimeout(
@@ -2852,10 +2871,11 @@ async function downloadUpdateAndRestart(
         if (assetSize > 0 && buf.length !== assetSize) {
           return { ok: false, error: 'Downloaded file size does not match the release asset - try again.' }
         }
-        const destPath = join(dir, `Game Browser ${version}.exe`)
-        await writeFileAtomic(destPath, buf)
-        const child = spawn(destPath, [], { detached: true, stdio: 'ignore' })
-        child.unref()
+        // Into temp, not next to the app: the installer is scaffolding, and
+        // the folder it installs into is about to be rewritten by it.
+        const installerPath = join(app.getPath('temp'), `Game Browser Setup ${version}.exe`)
+        await writeFileAtomic(installerPath, buf)
+        await runInstallerAndRelaunch(installerPath)
         app.quit()
         return { ok: true }
       },
@@ -3069,7 +3089,11 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('saves:backup', async (_e, id: string): Promise<SaveBackupResult> => backupSavesFor(id, false))
 
-  ipcMain.handle('saves:restore', async (_e, id: string, zipPath: string): Promise<SaveBackupResult> => {
+  // The game id is accepted for symmetry with the other saves: calls but
+  // deliberately unused — the archive's own saves.json is what says where each
+  // entry belongs, which is the only trustworthy answer once a game has been
+  // renamed or re-added under a new id.
+  ipcMain.handle('saves:restore', async (_e, _id: string, zipPath: string): Promise<SaveBackupResult> => {
     try {
       const staging = join(app.getPath('temp'), `gb-save-restore-${Date.now()}`)
       await extractZip(zipPath, staging)
@@ -3647,7 +3671,7 @@ async function loadWindowState(): Promise<WindowState | null> {
  * otherwise unplugging the monitor it was last on reopens the window somewhere
  * invisible, with no obvious way to get it back.
  */
-function positionIsOnSomeDisplay(x: number, y: number, width: number, height: number): boolean {
+function positionIsOnSomeDisplay(x: number, y: number, width: number): boolean {
   return screen.getAllDisplays().some((display) => {
     const b = display.workArea
     // Require a decent chunk of the titlebar to be reachable, not just a pixel.
@@ -3694,7 +3718,9 @@ function createWindow(saved: WindowState | null): void {
     saved !== null &&
     saved.x !== null &&
     saved.y !== null &&
-    positionIsOnSomeDisplay(saved.x, saved.y, saved.width, saved.height)
+    // Height is not part of the test on purpose: what has to be reachable is
+    // the titlebar, which the y check covers.
+    positionIsOnSomeDisplay(saved.x, saved.y, saved.width)
 
   const win = new BrowserWindow({
     width: saved?.width ?? 1920,
@@ -3777,15 +3803,10 @@ if (gotSingleInstanceLock) {
       .then(() => sweepMissingMetadata())
       .then(() => sweepMissingScreenshots())
     void maybeRunScheduledBackup()
-    void cleanupOldPortableExes()
-    // The just-replaced old instance may still hold its exe file locked for
-    // a moment after spawning the new one and calling app.quit() (which only
-    // *schedules* shutdown) - the immediate sweep above often loses that
-    // race right after an update. A couple of delayed retries catch it
-    // within this same session instead of leaving the old file until the
-    // user happens to relaunch again.
-    setTimeout(() => void cleanupOldPortableExes(), 5000)
-    setTimeout(() => void cleanupOldPortableExes(), 20000)
+    // Nothing sweeps old executables any more: the installer replaces the app
+    // in place, so there are no leftover versioned exes piling up beside it.
+    // That whole dance existed only because the portable build kept every
+    // downloaded version as a separate file in the user's own folder.
     // Cheap periodic re-check rather than scheduling exactly at the interval
     // boundary - correctly picks up backupEnabled/backupFolder/interval
     // changes made at runtime without needing to reset a timer.

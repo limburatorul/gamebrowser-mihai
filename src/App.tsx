@@ -14,7 +14,7 @@ import type {
   UpdateCheckResult,
   ViewMode
 } from '@shared/types'
-import { COMPLETION_STATUSES, COMPLETION_LABELS } from '@shared/types'
+import { COMPLETION_STATUSES, PLATFORM_SOURCES } from '@shared/types'
 import { formatPlaytime, formatSize } from './lib/localFile'
 import Sidebar, { type LibraryFilter } from './components/Sidebar'
 import TopBar from './components/TopBar'
@@ -44,7 +44,6 @@ import { CHANGELOG, getChangesSince, type ChangelogEntry } from './lib/changelog
 const LAST_SEEN_VERSION_KEY = 'gb_lastSeenVersion'
 /** How often to look for a new release while the app stays open. */
 const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000
-const PLATFORM_SOURCES = new Set<Game['source']>(['steam', 'epic', 'gog', 'ubisoft'])
 
 export default function App(): JSX.Element {
   const [games, setGames] = useState<Game[]>([])

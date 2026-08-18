@@ -1,3 +1,14 @@
+/**
+ * Sources whose games are owned by a launcher, so removal is handed to it
+ * rather than done here.
+ *
+ * Lives beside `Game['source']` because it is a subset of it, and because the
+ * list has grown before (Steam, then Epic, then GOG, then Ubisoft) — it was
+ * copied into four files, two of them untyped, which is exactly the shape that
+ * gets missed when a fifth platform arrives.
+ */
+export const PLATFORM_SOURCES: ReadonlySet<Game['source']> = new Set(['steam', 'epic', 'gog', 'ubisoft'])
+
 export const COMPLETION_STATUSES = ['backlog', 'playing', 'finished', 'dropped'] as const
 export type CompletionStatus = (typeof COMPLETION_STATUSES)[number]
 

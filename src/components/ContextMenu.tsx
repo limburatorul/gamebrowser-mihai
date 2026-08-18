@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CompletionStatus, Game } from '@shared/types'
-import { COMPLETION_STATUSES, COMPLETION_LABELS } from '@shared/types'
+import { COMPLETION_STATUSES, COMPLETION_LABELS, PLATFORM_SOURCES } from '@shared/types'
 
 interface Props {
   game: Game
@@ -21,7 +21,6 @@ interface Props {
   onDeleteFromDisk: (id: string) => void
 }
 
-const PLATFORM_SOURCES = new Set(['steam', 'epic', 'gog', 'ubisoft'])
 
 export default function ContextMenu({
   game,

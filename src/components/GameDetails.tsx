@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Game } from '@shared/types'
+import { PLATFORM_SOURCES } from '@shared/types'
 import CoverImage from './CoverImage'
 import StarRating from './StarRating'
 import { formatDate, formatPlaytime, formatSize } from '../lib/localFile'
@@ -24,7 +25,6 @@ interface Props {
   onToggleHidden: (id: string) => void
 }
 
-const PLATFORM_SOURCES = new Set(['steam', 'epic', 'gog', 'ubisoft'])
 
 export default function GameDetails({
   game,

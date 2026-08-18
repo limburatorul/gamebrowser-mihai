@@ -2,17 +2,17 @@
 
 A standalone game library manager for Windows. It gathers everything you have installed — Steam, Epic, GOG, Ubisoft Connect, and anything you point it at by hand — into one library you can browse, organise and launch from.
 
-No launcher required, no account, no background service. It is a single portable `.exe` that keeps its data in a plain folder on your machine.
+No launcher required, no account, no background service. It keeps its data in a plain folder on your machine.
 
 ![version](https://img.shields.io/github/v/release/limburatorul/gamebrowser-mihai)
 
 ## Install
 
-Grab `Game Browser <version>.exe` from the [latest release](https://github.com/limburatorul/gamebrowser-mihai/releases/latest) and run it. There is no installer — put it wherever you like.
+Grab `Game.Browser.Setup.<version>.exe` from the [latest release](https://github.com/limburatorul/gamebrowser-mihai/releases/latest) and run it. It installs for the current user only, so it never asks for administrator rights, and you can choose the folder.
 
-The app updates itself: it checks for a newer release on startup, and can download and swap in the new version from the About dialog. Old versions are cleaned up automatically.
+The app updates itself: it checks for a newer release on startup and every half hour after that, and from the About dialog. Accepting an update downloads the installer, runs it quietly in the background, and starts the app again when it is done.
 
-> Keep it in its own folder. The update cleanup deletes any older `Game Browser <version>.exe` sitting next to the running one.
+> **Coming from the old portable build?** The first update hands you the installer window rather than doing it silently, so you can pick where it goes — there is no previous install for it to reuse. Afterwards you can delete the old `Game Browser <version>.exe`; nothing needs it any more.
 
 ## What it does
 
@@ -75,7 +75,7 @@ Other scripts:
 | `npm run dev` | Development build with hot reload for the UI |
 | `npm run typecheck` | Type-checks the main, preload and renderer projects |
 | `npm run build` | Production build into `out/` |
-| `npm run dist` | Full portable `.exe` into `dist/` |
+| `npm run dist` | NSIS installer into `dist/` |
 
 Releases are built by GitHub Actions on any `vX.Y.Z` tag push — see [`.github/workflows/release.yml`](.github/workflows/release.yml).
 
