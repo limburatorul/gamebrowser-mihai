@@ -1,6 +1,6 @@
 {
   "name": "game-browser",
-  "version": "2.14.1",
+  "version": "2.14.2",
   "private": true,
   "description": "A lightweight, standalone game library manager with manual and folder-scan import.",
   "main": "out/main/index.js",

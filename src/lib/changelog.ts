@@ -6,6 +6,13 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.14.2',
+    changes: [
+      'Fixed: Big Picture was laid out wrongly — the hints ended up at the top and the game details squeezed into a corner.',
+      'New: a close button in the top right of Big Picture, so there is always a way out with the mouse alone. Escape and B still work, and F11 now closes it as well as opening it. Leaving it never closes the app.'
+    ]
+  },
+  {
     version: '2.14.1',
     changes: [
       'Fixed: moving around Big Picture with the keyboard could feel stuck, and Enter could start a different game than the one on screen. The desktop library was still listening for keys behind it and fighting for them.',

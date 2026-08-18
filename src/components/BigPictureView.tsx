@@ -41,18 +41,19 @@ export default function BigPictureView({ games, runningIds, onLaunch, onExit }: 
 
   const [rowIndex, setRowIndex] = useState(0)
   const [colIndex, setColIndex] = useState(0)
-  const focusRef = useRef<HTMLDivElement>(null)
 
   const row = rows[Math.min(rowIndex, rows.length - 1)]
   const selected = row?.games[Math.min(colIndex, row.games.length - 1)] ?? null
   // Keeps a screen's worth of covers either side of the cursor mounted.
   const windowStart = Math.max(0, colIndex - COLUMNS)
-
-  // Keeping the focused tile on screen is the whole navigation model here -
-  // there is no pointer to scroll with.
-  useEffect(() => {
-    focusRef.current?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' })
-  }, [rowIndex, colIndex, rows.length])
+  // The shelf is moved with a transform rather than by scrolling it.
+  // `scrollIntoView` scrolls the nearest scrollable ancestor, and with a fixed,
+  // overflow-hidden container that meant scrolling the entire view off screen -
+  // the hints ended up at x=-274 and the hero at x=1458, which looked like a
+  // broken layout rather than a scrolled one. A transform cannot do that.
+  const TILE_STEP = 168
+  const LEAD_TILES = 2
+  const shelfShift = Math.max(0, colIndex - windowStart - LEAD_TILES) * TILE_STEP
 
   const move = useCallback(
     (action: PadAction): void => {
@@ -93,7 +94,10 @@ export default function BigPictureView({ games, runningIds, onLaunch, onExit }: 
       ArrowLeft: 'left',
       ArrowRight: 'right',
       Enter: 'confirm',
-      Escape: 'back'
+      Escape: 'back',
+      // The same key that opened it closes it, which is what every other
+      // fullscreen thing on this machine does.
+      F11: 'back'
     }
     const onKey = (e: KeyboardEvent): void => {
       const action = map[e.key]
@@ -156,18 +160,17 @@ export default function BigPictureView({ games, runningIds, onLaunch, onExit }: 
             </span>
           ))}
         </div>
-        <div className="bigpicture-row-items">
+        <div
+          className="bigpicture-row-items"
+          style={{ transform: `translateX(-${shelfShift}px)` }}
+        >
           {/* Only a window of the row is rendered: "All games" is 544 entries
               and mounting them all would stutter every move. */}
           {row?.games.slice(windowStart, windowStart + COLUMNS * 3).map((g, offset) => {
             const actualIndex = windowStart + offset
             const focused = actualIndex === colIndex
             return (
-              <div
-                key={g.id}
-                ref={focused ? focusRef : undefined}
-                className={`bigpicture-tile ${focused ? 'focused' : ''}`}
-              >
+              <div key={g.id} className={`bigpicture-tile ${focused ? 'focused' : ''}`}>
                 <CoverImage game={g} className="cover-img" />
                 {runningIds.has(g.id) && <div className="bigpicture-running">RUNNING</div>}
               </div>
@@ -176,12 +179,20 @@ export default function BigPictureView({ games, runningIds, onLaunch, onExit }: 
         </div>
       </div>
 
+      {/* Deliberately a real button, and the only one in the view. Everything
+          else here answers to a controller, but if key handling ever breaks
+          again there has to be a way out that does not involve killing the
+          app - which is exactly what happened in 2.14.0. */}
+      <button className="bigpicture-exit" title="Leave Big Picture (Esc)" onClick={onExit}>
+        ✕
+      </button>
+
       <div className="bigpicture-hints">
         <span>
           <strong>A</strong> / Enter — Play
         </span>
         <span>
-          <strong>B</strong> / Esc — Leave
+          <strong>B</strong> / Esc / F11 — Leave
         </span>
         <span>
           <strong>↕</strong> Change shelf

@@ -3447,7 +3447,36 @@ input[type='checkbox']:focus-visible {
 /* Everything above the backdrop needs its own stacking context, or the blurred
    art paints over the text. */
 .bigpicture-hero,
-.bigpicture-shelf,
+.bigpicture-shelf {
+  position: relative;
+  z-index: 1;
+}
+
+/* The one clickable thing in the view, and on purpose: a mouse must always be
+   able to get out even if key or pad handling fails. Top right, out of the way
+   of the art, but never hidden. */
+.bigpicture-exit {
+  position: absolute;
+  top: 22px;
+  right: 26px;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--text-1);
+  font-size: 17px;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
+}
+
+.bigpicture-exit:hover {
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--text-0);
+  transform: scale(1.08);
+}
+
 .bigpicture-hints {
   position: relative;
   z-index: 1;
@@ -3561,12 +3590,20 @@ input[type='checkbox']:focus-visible {
   opacity: 0.55;
 }
 
+/* Moved by transform, never scrolled - see BigPictureView. `overflow` stays
+   off it for the same reason: a scrollable ancestor is what let the whole view
+   get dragged off screen. */
 .bigpicture-row-items {
   display: flex;
   gap: 18px;
   /* Vertical room for the focused tile's scale, and a little on the left so
      its ring is not clipped by the container edge. */
   padding: 6px 0 20px 6px;
+  transition: transform 200ms ease;
+  will-change: transform;
+}
+
+.bigpicture-shelf {
   overflow: hidden;
 }
 
