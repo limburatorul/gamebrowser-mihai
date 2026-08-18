@@ -127,7 +127,8 @@ let settings: Settings = {
   lastBackupAt: null,
   librarySyncEnabled: true,
   autoBackupSavesOnExit: true,
-  saveBackupFolder: ''
+  saveBackupFolder: '',
+  lastAttemptedUpdateVersion: ''
 }
 const runningProcesses = new Map<string, { child: ChildProcess; start: number }>()
 
@@ -2840,13 +2841,18 @@ async function checkForUpdate(): Promise<UpdateCheckResult> {
       if (compareVersions(latestVersion, currentVersion) <= 0 || !asset) {
         return { available: false, currentVersion, latestVersion }
       }
+      // We downloaded and ran this installer before and are still not running
+      // it. Something about installing failed, and offering it again on every
+      // startup and every half hour is how a failure becomes a loop.
+      const previouslyFailed = settings.lastAttemptedUpdateVersion === latestVersion
       return {
         available: true,
         currentVersion,
         latestVersion,
         notes: release.body ?? undefined,
         assetUrl: asset.browser_download_url,
-        assetSize: asset.size
+        assetSize: asset.size,
+        previouslyFailed
       }
     })
   } catch (e) {
@@ -2872,14 +2878,31 @@ async function checkForUpdate(): Promise<UpdateCheckResult> {
  */
 async function runInstallerAndRelaunch(installerPath: string): Promise<void> {
   const silent = !isPortableBuild()
+  const installDir = dirname(process.execPath)
   const exeToStart = silent ? process.execPath : ''
   const scriptPath = join(app.getPath('temp'), `gb-update-${Date.now()}.cmd`)
   const lines = [
     '@echo off',
-    // Give this process a moment to actually be gone; the installer refuses to
-    // replace files still held open.
-    'ping -n 3 127.0.0.1 >nul',
-    silent ? `start /wait "" "${installerPath}" /S` : `start /wait "" "${installerPath}"`,
+    // Wait for this exact process to be gone rather than guessing at a delay.
+    // The installer cannot replace files that are still open, and a fixed
+    // sleep is a race that a slow machine loses.
+    ':waitloop',
+    `tasklist /FI "PID eq ${process.pid}" 2>nul | find "${process.pid}" >nul`,
+    'if not errorlevel 1 (',
+    '  ping -n 2 127.0.0.1 >nul',
+    '  goto waitloop',
+    ')',
+    // `/D` must be the LAST parameter and must NOT be quoted - that is NSIS's
+    // rule, not a style choice. Without it the installer picks its own target:
+    // InstallLocation is empty in these builds, so it falls back to the
+    // launching process's working directory. That shipped in 2.14.2 and put
+    // the new version somewhere else while this script relaunched the old exe,
+    // which found the same update again - an endless loop.
+    // Silent path only: a portable build's execPath is a temp extraction
+    // folder, so aiming the installer at it would install into %TEMP%.
+    silent
+      ? `start /wait "" "${installerPath}" /S /D=${installDir}`
+      : `start /wait "" "${installerPath}"`,
     exeToStart ? `start "" "${exeToStart}"` : '',
     `del "%~f0"`
   ].filter(Boolean)
@@ -2909,6 +2932,10 @@ async function downloadUpdateAndRestart(
         // the folder it installs into is about to be rewritten by it.
         const installerPath = join(app.getPath('temp'), `Game Browser Setup ${version}.exe`)
         await writeFileAtomic(installerPath, buf)
+        // Recorded before the hand-off, not after: this process is about to
+        // exit, so there is no "after".
+        settings = { ...settings, lastAttemptedUpdateVersion: version }
+        await saveSettingsToDisk()
         await runInstallerAndRelaunch(installerPath)
         app.quit()
         return { ok: true }
@@ -3453,7 +3480,9 @@ function registerIpcHandlers(): void {
       rawgApiKey: next.rawgApiKey?.trim() ?? '',
       librarySyncEnabled: !!next.librarySyncEnabled,
       autoBackupSavesOnExit: !!next.autoBackupSavesOnExit,
-      saveBackupFolder: next.saveBackupFolder?.trim() ?? ''
+      saveBackupFolder: next.saveBackupFolder?.trim() ?? '',
+      // Not user-editable; preserved so a Settings save cannot wipe it.
+      lastAttemptedUpdateVersion: settings.lastAttemptedUpdateVersion
     }
     igdbToken = null
     await saveSettingsToDisk()
@@ -3824,6 +3853,12 @@ if (gotSingleInstanceLock) {
     await loadSessions()
     await loadSaveIndex()
     await fs.mkdir(saveBackupsRoot(), { recursive: true })
+    // The update landed: forget the attempt so this version is never
+    // treated as a failure later.
+    if (settings.lastAttemptedUpdateVersion === app.getVersion()) {
+      settings = { ...settings, lastAttemptedUpdateVersion: '' }
+      await saveSettingsToDisk()
+    }
 
     protocol.handle('local-file', async (request) => {
       const { pathname } = new URL(request.url)

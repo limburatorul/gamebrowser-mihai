@@ -248,6 +248,14 @@ export interface Settings {
   /** Archive a game's saves when it exits. Skips writing anything when the
       files have not changed, and keeps the last ten per game. */
   autoBackupSavesOnExit: boolean
+  /**
+   * Version we last downloaded an installer for. Persisted so that a failed
+   * install cannot turn into an endless cycle: the automatic check refuses to
+   * offer a version it already tried and did not end up running, while the
+   * manual check in About ignores this entirely. Cleared once the app is
+   * actually running that version.
+   */
+  lastAttemptedUpdateVersion: string
   /** Where those archives are kept. Empty means the app's own data folder,
       which is where they started; pointing it at another drive is the reason
       this exists, since that is what makes them survive the disk dying. */
@@ -427,6 +435,10 @@ export interface UpdateCheckResult {
   notes?: string
   assetUrl?: string
   assetSize?: number
+  /** This exact version was downloaded and installed before, and yet here we
+      are still running something else — so the install did not take. The
+      automatic check stays quiet about it; the manual one does not. */
+  previouslyFailed?: boolean
   error?: string
 }
 

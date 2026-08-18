@@ -3,10 +3,28 @@ out
 dist
 dist-electron
 *.log
+# Fork-only: an old `npm run dist` output folder (333MB, a 1.0.0 build).
+# This line is why the fork's .gitignore must never be overwritten from
+# main - copying main's over it on 2026-08-18 exposed the whole folder.
 /Game Browser/
 Backup/
 *.zip
 *.exe
-# Scratch folder of generated icon-design candidates. The icon actually
-# shipped is build/icon.ico.
+# Scratch folder of generated icon-design candidates that keeps getting swept
+# into commits by accident. The icon actually shipped is build/icon.ico.
 /icons/
+
+# Electron runtime payload, if an installer ever writes into this folder again.
+# It happened on 2026-08-18: a silent install with no /D fell back to the
+# launching process's working directory and unpacked the whole app in here.
+# These are build output wherever they appear, never source.
+/locales/
+/resources/
+/Uninstall Game Browser.exe
+*.pak
+*.dll
+*.bin
+icudtl.dat
+LICENSE.electron.txt
+LICENSES.chromium.html
+vk_swiftshader_icd.json

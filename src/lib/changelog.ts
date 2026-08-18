@@ -6,6 +6,14 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.14.3',
+    changes: [
+      'Fixed: updating could install the new version into the wrong folder and then start the old one again, so the same update kept being offered over and over. The installer is now told exactly where to install, and waits for the app to actually close first.',
+      'If an update ever does fail to take hold, it is no longer offered automatically a second time — you can still install it yourself from About. That way a failure stays a failure instead of becoming a loop.',
+      'Note for anyone caught in that loop on 2.14.1 or 2.14.2: the broken part is in the version you are running, so it has to be escaped once by hand. Download the installer from the release page and run it, pointing it at your existing Game Browser folder. Updates after that look after themselves.'
+    ]
+  },
+  {
     version: '2.14.2',
     changes: [
       'Fixed: Big Picture was laid out wrongly — the hints ended up at the top and the game details squeezed into a corner.',

@@ -848,7 +848,10 @@ export default function SettingsDialog({
                 lastBackupAt: initial.lastBackupAt,
                 librarySyncEnabled,
                 autoBackupSavesOnExit,
-                saveBackupFolder
+                saveBackupFolder,
+                // Not editable here; passed through so saving Settings cannot
+                // clear the update-attempt marker. Main preserves it anyway.
+                lastAttemptedUpdateVersion: initial.lastAttemptedUpdateVersion
               })
             }
           >

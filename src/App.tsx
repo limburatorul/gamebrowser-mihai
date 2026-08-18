@@ -82,7 +82,8 @@ export default function App(): JSX.Element {
     lastBackupAt: null,
     librarySyncEnabled: true,
     autoBackupSavesOnExit: true,
-    saveBackupFolder: ''
+    saveBackupFolder: '',
+    lastAttemptedUpdateVersion: ''
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
@@ -202,7 +203,12 @@ export default function App(): JSX.Element {
       void window.api.checkForUpdate().then((result) => {
         // Not a version the user has already waved away this session. Without
         // this, "Later" would buy exactly thirty minutes of peace.
-        if (result.available && result.latestVersion !== dismissedUpdateRef.current) setUpdateCheck(result)
+        // `previouslyFailed` is the loop breaker: an install that did not
+        // take must not be re-offered on every startup and every half
+        // hour. About's manual check still shows it.
+        if (result.available && !result.previouslyFailed && result.latestVersion !== dismissedUpdateRef.current) {
+          setUpdateCheck(result)
+        }
       })
     }
     const first = setTimeout(check, 3000)
