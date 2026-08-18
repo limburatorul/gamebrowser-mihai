@@ -6,6 +6,13 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.14.1',
+    changes: [
+      'Fixed: moving around Big Picture with the keyboard could feel stuck, and Enter could start a different game than the one on screen. The desktop library was still listening for keys behind it and fighting for them.',
+      'Big Picture now looks closer to Steam: the selected game gets a proper hero — large art, its details, and a Play button — with one shelf of covers underneath and the other shelves named above it, instead of four stacked rows.'
+    ]
+  },
+  {
     version: '2.14.0',
     changes: [
       'New: Big Picture mode — a fullscreen view meant for a controller and a television. Press F11 or the pad button in the top bar. Big cover art, a few rows to move between, A or Enter to play, B or Escape to come back. It works with the keyboard alone if you have no controller plugged in.',

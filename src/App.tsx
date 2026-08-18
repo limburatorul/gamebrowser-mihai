@@ -264,6 +264,12 @@ export default function App(): JSX.Element {
       }
 
       if (anyModalOpen || contextMenu) return
+      // Big Picture replaces this whole layout, but returning early from
+      // render does not unmount App, so this listener is still attached and
+      // would keep driving the grid underneath - arrows moving an invisible
+      // selection, and Enter launching whatever the grid was anchored on
+      // rather than the game on screen.
+      if (bigPicture) return
       // Never steal keys from a text field - the search box, the category
       // rename input, anything in a dialog.
       const el = document.activeElement
@@ -327,11 +333,11 @@ export default function App(): JSX.Element {
         handleLaunch(anchorId)
       }
     }
-    // Its own listener, outside the guards above: Big Picture should be
-    // reachable even with a game selected or the grid focused, and it is the
-    // one shortcut people expect to work everywhere.
+    // Its own listener: Big Picture should be reachable even with a game
+    // selected or the grid focused, and it is the one shortcut people expect
+    // to work everywhere.
     const onBigPictureKey = (e: KeyboardEvent): void => {
-      if (e.key === 'F11' && !anyModalOpen) {
+      if (e.key === 'F11' && !anyModalOpen && !bigPicture) {
         e.preventDefault()
         setBigPicture(true)
       }
@@ -342,7 +348,7 @@ export default function App(): JSX.Element {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keydown', onBigPictureKey)
     }
-  }, [contextMenu, anyModalOpen, anchorId, columns])
+  }, [contextMenu, anyModalOpen, anchorId, columns, bigPicture])
 
   const availableGenres = useMemo(() => {
     const set = new Set<string>()
