@@ -14,6 +14,7 @@ import type {
   BackupPrefs,
   BackupResult,
   BackupListResult,
+  ImportOverlap,
   ImportResult,
   UpdateCheckResult,
   UpdateApplyResult,
@@ -1500,13 +1501,24 @@ interface SteamScan {
   /** Library folders that could actually be read this run. A game installed
       under a folder absent from this list is never treated as uninstalled. */
   readableLibraries: string[]
+  /** The rest - listed in libraryfolders.vdf but not readable right now,
+      typically a drive that's gone or a share that isn't mounted. Reported
+      to the user, because a game installed there simply cannot be seen. */
+  unreadableLibraries: string[]
 }
+
+// Steam's own shared redistributables carry an appid and a folder under
+// common\ like any game, but there is nothing to launch there. It has never
+// made it into the library (no usable exe), and without this it would show up
+// in every import report as a folder we looked at and gave up on.
+const IGNORED_STEAM_APPIDS = new Set([228980]) // Steamworks Common Redistributables
 
 async function findInstalledSteamGames(): Promise<SteamScan | null> {
   const steamPath = await findSteamPath()
   if (!steamPath) return null
   const libraries = await findSteamLibraryFolders(steamPath)
   const readableLibraries: string[] = []
+  const unreadableLibraries: string[] = []
   const result: InstalledSteamGame[] = []
   // Several appids can share one installdir - Half-Life 2, Lost Coast and both
   // episodes all live in "common\Half-Life 2", which produced four library
@@ -1516,28 +1528,121 @@ async function findInstalledSteamGames(): Promise<SteamScan | null> {
   const seenAppIds = new Set<number>()
   for (const lib of libraries) {
     const manifests = await parseAppManifests(lib)
-    if (manifests === null) continue
+    if (manifests === null) {
+      unreadableLibraries.push(lib)
+      continue
+    }
     readableLibraries.push(lib)
     for (const m of manifests) {
       const appId = Number(m.appid)
+      if (IGNORED_STEAM_APPIDS.has(appId)) continue
       const installDir = join(lib, 'steamapps', 'common', m.installdir)
-      const dirKey = installDir.toLowerCase()
+      const dirKey = normalizePath(installDir)
       if (seenAppIds.has(appId) || claimedDirs.has(dirKey)) continue
       seenAppIds.add(appId)
       claimedDirs.add(dirKey)
       result.push({ appId, name: m.name, installDir })
     }
   }
-  return { games: result, readableLibraries }
+  return { games: result, readableLibraries, unreadableLibraries }
 }
 
-async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]> {
-  const existingAppIds = new Set(games.map((g) => g.steamAppId).filter((id): id is number => id !== null))
-  const added: Game[] = []
+/** What an import actually did, for the platforms whose dedup key is issued
+    by the platform itself and so can't be borrowed the way Steam's appid can:
+    Epic, GOG and Ubisoft. The counts exist so a run that adds nothing can say
+    which kind of nothing it was. */
+interface PlatformImportOutcome {
+  added: Game[]
+  alreadyPresent: number
+  noExe: string[]
+}
+
+interface SteamImportOutcome {
+  added: Game[]
+  /** Existing Steam entries whose install moved to another library folder. */
+  repointed: Game[]
+  alreadyPresent: number
+  noExe: string[]
+  overlaps: ImportOverlap[]
+}
+
+/**
+ * Brings the installed Steam games into the library.
+ *
+ * **Identity is `source === 'steam'` plus the appid, never the appid alone.**
+ * That distinction is the whole bug this function was rewritten for: the
+ * metadata sweep writes a `steamAppId` onto any entry it can match by name,
+ * purely as a pointer for covers, descriptions and playtime, and on this
+ * user's machine 511 of 624 entries are non-Steam yet carry one. Deduping on
+ * the bare appid therefore let a folder-scanned repack hide the real Steam
+ * install: buying Sandustry and installing it through Steam produced "no new
+ * Steam games found", while the entry kept launching the old copy from
+ * W:\SteamUnlocked. An install folder already in the library counts as
+ * present too, whatever its source - those really are the same files.
+ *
+ * When a non-Steam entry holds the appid, the Steam install is imported as its
+ * own entry and the overlap is reported rather than the old entry being
+ * repointed. Repointing looks tidier and loses: the matcher's appids are
+ * frequently wrong (this library has "Watch Dogs" carrying Watch Dogs 2's
+ * appid), so it would silently move an entry onto a different game's folder.
+ */
+async function importSteamGames(installed: InstalledSteamGame[]): Promise<SteamImportOutcome> {
+  const outcome: SteamImportOutcome = { added: [], repointed: [], alreadyPresent: 0, noExe: [], overlaps: [] }
+  const steamEntries = new Map<number, Game>()
+  const byInstallDir = new Map<string, Game>()
+  for (const g of games) {
+    if (g.source === 'steam' && g.steamAppId !== null && !steamEntries.has(g.steamAppId)) {
+      steamEntries.set(g.steamAppId, g)
+    }
+    const key = normalizePath(g.installDir)
+    if (key && !byInstallDir.has(key)) byInstallDir.set(key, g)
+  }
+
   for (const g of installed) {
-    if (existingAppIds.has(g.appId)) continue
+    const dirKey = normalizePath(g.installDir)
+    const owner = steamEntries.get(g.appId)
+
+    if (owner) {
+      if (normalizePath(owner.installDir) === dirKey) {
+        outcome.alreadyPresent++
+        continue
+      }
+      // Same appid, different folder: Steam moved the install to another
+      // library, and nothing ever repaired the entry - it pointed at a path
+      // that no longer existed and the game could not be launched at all.
+      // Nine of this library's entries still referred to a drive letter that
+      // is gone.
+      const moved = await findBestExe(g.installDir)
+      if (!moved) {
+        outcome.noExe.push(g.installDir)
+        continue
+      }
+      byInstallDir.delete(normalizePath(owner.installDir))
+      owner.installDir = g.installDir
+      owner.exePath = moved
+      byInstallDir.set(dirKey, owner)
+      outcome.repointed.push(owner)
+      continue
+    }
+
+    const sameFolder = byInstallDir.get(dirKey)
+    if (sameFolder) {
+      // Already in the library under some other source - folder-scanned
+      // straight out of steamapps\common, most likely. Same files, so
+      // importing again would only produce a duplicate.
+      outcome.alreadyPresent++
+      continue
+    }
+
     const exe = await findBestExe(g.installDir)
-    if (!exe) continue
+    if (!exe) {
+      outcome.noExe.push(g.installDir)
+      continue
+    }
+    const borrower = games.find((x) => x.source !== 'steam' && x.steamAppId === g.appId)
+    if (borrower) {
+      outcome.overlaps.push({ name: g.name, existingDir: borrower.installDir, installedDir: g.installDir })
+    }
     const id = randomUUID()
     const iconPath = await extractIcon(exe, id)
     const game: Game = {
@@ -1576,10 +1681,11 @@ async function addNewSteamGames(installed: InstalledSteamGame[]): Promise<Game[]
       ubisoftId: null
     }
     games.push(game)
-    added.push(game)
-    existingAppIds.add(g.appId)
+    outcome.added.push(game)
+    steamEntries.set(g.appId, game)
+    byInstallDir.set(dirKey, game)
   }
-  return added
+  return outcome
 }
 
 // null distinguishes "Epic Games Launcher not found" (manifests dir doesn't
@@ -1590,17 +1696,23 @@ async function findInstalledEpicGames(): Promise<EpicManifest[] | null> {
   return parseEpicManifests()
 }
 
-async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
+async function addNewEpicGames(installed: EpicManifest[]): Promise<PlatformImportOutcome> {
   const existingAppNames = new Set(games.map((g) => g.epicAppName).filter((n): n is string => n !== null))
-  const added: Game[] = []
+  const outcome: PlatformImportOutcome = { added: [], alreadyPresent: 0, noExe: [] }
   for (const m of installed) {
-    if (existingAppNames.has(m.appName)) continue
+    if (existingAppNames.has(m.appName)) {
+      outcome.alreadyPresent++
+      continue
+    }
     let exePath = join(m.installLocation, m.launchExecutable)
     try {
       await fs.access(exePath)
     } catch {
       const fallback = await findBestExe(m.installLocation)
-      if (!fallback) continue
+      if (!fallback) {
+        outcome.noExe.push(m.installLocation)
+        continue
+      }
       exePath = fallback
     }
     const id = randomUUID()
@@ -1641,19 +1753,25 @@ async function addNewEpicGames(installed: EpicManifest[]): Promise<Game[]> {
       ubisoftId: null
     }
     games.push(game)
-    added.push(game)
+    outcome.added.push(game)
     existingAppNames.add(m.appName)
   }
-  return added
+  return outcome
 }
 
-async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
+async function addNewGogGames(installed: GogGame[]): Promise<PlatformImportOutcome> {
   const existingProductIds = new Set(games.map((g) => g.gogProductId).filter((id): id is string => id !== null))
-  const added: Game[] = []
+  const outcome: PlatformImportOutcome = { added: [], alreadyPresent: 0, noExe: [] }
   for (const g of installed) {
-    if (existingProductIds.has(g.productId)) continue
+    if (existingProductIds.has(g.productId)) {
+      outcome.alreadyPresent++
+      continue
+    }
     const exe = await findBestExe(g.installDir)
-    if (!exe) continue
+    if (!exe) {
+      outcome.noExe.push(g.installDir)
+      continue
+    }
     const id = randomUUID()
     const iconPath = await extractIcon(exe, id)
     const game: Game = {
@@ -1692,10 +1810,10 @@ async function addNewGogGames(installed: GogGame[]): Promise<Game[]> {
       ubisoftId: null
     }
     games.push(game)
-    added.push(game)
+    outcome.added.push(game)
     existingProductIds.add(g.productId)
   }
-  return added
+  return outcome
 }
 
 interface InstalledUbisoftGame {
@@ -1738,13 +1856,19 @@ async function findInstalledUbisoftGames(): Promise<InstalledUbisoftGame[] | nul
   }
 }
 
-async function addNewUbisoftGames(installed: InstalledUbisoftGame[]): Promise<Game[]> {
+async function addNewUbisoftGames(installed: InstalledUbisoftGame[]): Promise<PlatformImportOutcome> {
   const existingIds = new Set(games.map((g) => g.ubisoftId).filter((id): id is string => id !== null))
-  const added: Game[] = []
+  const outcome: PlatformImportOutcome = { added: [], alreadyPresent: 0, noExe: [] }
   for (const g of installed) {
-    if (existingIds.has(g.id)) continue
+    if (existingIds.has(g.id)) {
+      outcome.alreadyPresent++
+      continue
+    }
     const exe = await findBestExe(g.installDir)
-    if (!exe) continue
+    if (!exe) {
+      outcome.noExe.push(g.installDir)
+      continue
+    }
     const id = randomUUID()
     const iconPath = await extractIcon(exe, id)
     const game: Game = {
@@ -1783,34 +1907,39 @@ async function addNewUbisoftGames(installed: InstalledUbisoftGame[]): Promise<Ga
       ubisoftId: g.id
     }
     games.push(game)
-    added.push(game)
+    outcome.added.push(game)
     existingIds.add(g.id)
   }
-  return added
+  return outcome
 }
 
-async function syncUbisoftLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
+async function syncUbisoftLibrary(): Promise<PlatformSyncResult> {
   const installed = await findInstalledUbisoftGames()
-  if (installed === null) return { added: [], removed: [] }
+  if (installed === null) return emptySync()
   const installedIds = new Set(installed.map((g) => g.id))
   const removed = games.filter(
     (g) => g.source === 'ubisoft' && g.ubisoftId !== null && !installedIds.has(g.ubisoftId)
   )
-  const added = await addNewUbisoftGames(installed)
-  return { added, removed }
+  const outcome = await addNewUbisoftGames(installed)
+  return { added: outcome.added, removed, updated: 0 }
+}
+
+/** Comparison key for a Windows path: separators folded to backslashes, any
+    trailing separator dropped, lowercased. */
+function normalizePath(p: string): string {
+  return p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
 }
 
 /** True when `child` sits inside `parent`, comparing Windows-style. */
 function isInsideFolder(child: string, parent: string): boolean {
-  const norm = (p: string): string => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
-  const c = norm(child)
-  const p = norm(parent)
+  const c = normalizePath(child)
+  const p = normalizePath(parent)
   return c === p || c.startsWith(p + '\\')
 }
 
-async function syncSteamLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
+async function syncSteamLibrary(): Promise<PlatformSyncResult> {
   const scan = await findInstalledSteamGames()
-  if (scan === null) return { added: [], removed: [] }
+  if (scan === null) return emptySync()
   const installedIds = new Set(scan.games.map((g) => g.appId))
 
   const removed = games.filter((g) => {
@@ -1827,34 +1956,34 @@ async function syncSteamLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
     return scan.readableLibraries.some((lib) => isInsideFolder(g.installDir, lib))
   })
 
-  const added = await addNewSteamGames(scan.games)
-  return { added, removed }
+  const outcome = await importSteamGames(scan.games)
+  return { added: outcome.added, removed, updated: outcome.repointed.length }
 }
 
-async function syncEpicLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
+async function syncEpicLibrary(): Promise<PlatformSyncResult> {
   const installed = await findInstalledEpicGames()
-  if (installed === null) return { added: [], removed: [] }
+  if (installed === null) return emptySync()
   const installedNames = new Set(installed.map((g) => g.appName))
   const removed = games.filter(
     (g) => g.source === 'epic' && g.epicAppName !== null && !installedNames.has(g.epicAppName)
   )
-  const added = await addNewEpicGames(installed)
-  return { added, removed }
+  const outcome = await addNewEpicGames(installed)
+  return { added: outcome.added, removed, updated: 0 }
 }
 
-async function syncGogLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
+async function syncGogLibrary(): Promise<PlatformSyncResult> {
   let installed: GogGame[]
   try {
     installed = await findGogGames()
   } catch {
-    return { added: [], removed: [] }
+    return emptySync()
   }
   const installedIds = new Set(installed.map((g) => g.productId))
   const removed = games.filter(
     (g) => g.source === 'gog' && g.gogProductId !== null && !installedIds.has(g.gogProductId)
   )
-  const added = await addNewGogGames(installed)
-  return { added, removed }
+  const outcome = await addNewGogGames(installed)
+  return { added: outcome.added, removed, updated: 0 }
 }
 
 // Runs at startup AND on an interval (see whenReady). Startup-only meant that
@@ -1868,6 +1997,20 @@ async function syncGogLibrary(): Promise<{ added: Game[]; removed: Game[] }> {
 // as repairIgnoredExePaths, not a popup/toast.
 const LIBRARY_SYNC_INTERVAL_MS = 15 * 60 * 1000
 let librarySyncRunning = false
+
+interface PlatformSyncResult {
+  added: Game[]
+  removed: Game[]
+  /** Entries changed in place rather than added or removed - so far only a
+      Steam install repointed after being moved to another library folder.
+      Counted separately because the library still has to be saved, and
+      because an exePath changing under the user is worth a toast. */
+  updated: number
+}
+
+function emptySync(): PlatformSyncResult {
+  return { added: [], removed: [], updated: 0 }
+}
 
 async function syncPlatformLibraries(): Promise<void> {
   if (!settings.librarySyncEnabled) return
@@ -1884,10 +2027,10 @@ async function syncPlatformLibraries(): Promise<void> {
 
 async function runPlatformSync(): Promise<void> {
   const [steam, epic, gog, ubisoft] = await Promise.all([
-    syncSteamLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] })),
-    syncEpicLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] })),
-    syncGogLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] })),
-    syncUbisoftLibrary().catch((): { added: Game[]; removed: Game[] } => ({ added: [], removed: [] }))
+    syncSteamLibrary().catch(emptySync),
+    syncEpicLibrary().catch(emptySync),
+    syncGogLibrary().catch(emptySync),
+    syncUbisoftLibrary().catch(emptySync)
   ])
   const removed = [...steam.removed, ...epic.removed, ...gog.removed, ...ubisoft.removed]
   const added = [...steam.added, ...epic.added, ...gog.added, ...ubisoft.added]
@@ -1895,7 +2038,8 @@ async function runPlatformSync(): Promise<void> {
     const removedIds = new Set(removed.map((g) => g.id))
     games = games.filter((g) => !removedIds.has(g.id))
   }
-  if (added.length === 0 && removed.length === 0) return
+  const updated = steam.updated + epic.updated + gog.updated + ubisoft.updated
+  if (added.length === 0 && removed.length === 0 && updated === 0) return
   await saveLibrary()
   broadcastLibrary()
 
@@ -1906,8 +2050,13 @@ async function runPlatformSync(): Promise<void> {
     ['GOG', gog],
     ['Ubisoft', ubisoft]
   ] as const) {
-    if (result.added.length > 0 || result.removed.length > 0) {
-      events.push({ source, added: result.added.length, removed: result.removed.length })
+    if (result.added.length > 0 || result.removed.length > 0 || result.updated > 0) {
+      events.push({
+        source,
+        added: result.added.length,
+        removed: result.removed.length,
+        updated: result.updated
+      })
     }
   }
   if (events.length > 0) broadcastLibrarySynced(events)
@@ -3070,28 +3219,39 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('steam:import', async (): Promise<ImportResult> => {
-    const installed = await findInstalledSteamGames()
-    if (installed === null) return { imported: 0, error: 'Steam installation not found.' }
-    const created = await addNewSteamGames(installed.games)
-    if (created.length > 0) {
+    const scan = await findInstalledSteamGames()
+    if (scan === null) {
+      return { imported: 0, alreadyPresent: 0, noExe: [], error: 'Steam installation not found.' }
+    }
+    const outcome = await importSteamGames(scan.games)
+    if (outcome.added.length > 0 || outcome.repointed.length > 0) {
       await saveLibrary()
       broadcastLibrary()
-      for (const game of created) enqueueAutoCoverFetch(game)
+      for (const game of outcome.added) enqueueAutoCoverFetch(game)
       void sweepMissingScreenshots()
     }
-    return { imported: created.length }
+    return {
+      imported: outcome.added.length,
+      alreadyPresent: outcome.alreadyPresent,
+      noExe: outcome.noExe,
+      repointed: outcome.repointed.length,
+      unreadable: scan.unreadableLibraries,
+      overlaps: outcome.overlaps
+    }
   })
 
   ipcMain.handle('epic:import', async (): Promise<ImportResult> => {
     const installed = await findInstalledEpicGames()
-    if (installed === null) return { imported: 0, error: 'Epic Games Launcher not found.' }
-    const created = await addNewEpicGames(installed)
-    if (created.length > 0) {
+    if (installed === null) {
+      return { imported: 0, alreadyPresent: 0, noExe: [], error: 'Epic Games Launcher not found.' }
+    }
+    const outcome = await addNewEpicGames(installed)
+    if (outcome.added.length > 0) {
       await saveLibrary()
       broadcastLibrary()
-      for (const game of created) enqueueAutoCoverFetch(game)
+      for (const game of outcome.added) enqueueAutoCoverFetch(game)
     }
-    return { imported: created.length }
+    return { imported: outcome.added.length, alreadyPresent: outcome.alreadyPresent, noExe: outcome.noExe }
   })
 
   ipcMain.handle('gog:import', async (): Promise<ImportResult> => {
@@ -3099,28 +3259,37 @@ function registerIpcHandlers(): void {
     try {
       gogGames = await findGogGames()
     } catch (e) {
-      return { imported: 0, error: e instanceof Error ? e.message : String(e) }
+      return {
+        imported: 0,
+        alreadyPresent: 0,
+        noExe: [],
+        error: e instanceof Error ? e.message : String(e)
+      }
     }
-    if (gogGames.length === 0) return { imported: 0, error: 'GOG Galaxy not found, or no games installed.' }
-    const created = await addNewGogGames(gogGames)
-    if (created.length > 0) {
+    if (gogGames.length === 0) {
+      return { imported: 0, alreadyPresent: 0, noExe: [], error: 'GOG Galaxy not found, or no games installed.' }
+    }
+    const outcome = await addNewGogGames(gogGames)
+    if (outcome.added.length > 0) {
       await saveLibrary()
       broadcastLibrary()
-      for (const game of created) enqueueAutoCoverFetch(game)
+      for (const game of outcome.added) enqueueAutoCoverFetch(game)
     }
-    return { imported: created.length }
+    return { imported: outcome.added.length, alreadyPresent: outcome.alreadyPresent, noExe: outcome.noExe }
   })
 
   ipcMain.handle('ubisoft:import', async (): Promise<ImportResult> => {
     const installed = await findInstalledUbisoftGames()
-    if (installed === null) return { imported: 0, error: 'Ubisoft Connect installation not found.' }
-    const created = await addNewUbisoftGames(installed)
-    if (created.length > 0) {
+    if (installed === null) {
+      return { imported: 0, alreadyPresent: 0, noExe: [], error: 'Ubisoft Connect installation not found.' }
+    }
+    const outcome = await addNewUbisoftGames(installed)
+    if (outcome.added.length > 0) {
       await saveLibrary()
       broadcastLibrary()
-      for (const game of created) enqueueAutoCoverFetch(game)
+      for (const game of outcome.added) enqueueAutoCoverFetch(game)
     }
-    return { imported: created.length }
+    return { imported: outcome.added.length, alreadyPresent: outcome.alreadyPresent, noExe: outcome.noExe }
   })
 
   ipcMain.handle('games:launch', async (_e, id: string, actionId?: string) => launchGame(id, actionId))

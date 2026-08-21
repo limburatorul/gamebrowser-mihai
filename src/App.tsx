@@ -7,6 +7,7 @@ import type {
   TrainerFileInfo,
   Game,
   GameCandidate,
+  ImportResult,
   LibrarySyncEvent,
   ScanProgress,
   Settings,
@@ -160,6 +161,8 @@ export default function App(): JSX.Element {
         if (e.added > 0) newToasts.push({ id: `${e.source}-added-${Date.now()}`, source: e.source, kind: 'added', count: e.added })
         if (e.removed > 0)
           newToasts.push({ id: `${e.source}-removed-${Date.now()}`, source: e.source, kind: 'removed', count: e.removed })
+        if (e.updated > 0)
+          newToasts.push({ id: `${e.source}-updated-${Date.now()}`, source: e.source, kind: 'updated', count: e.updated })
       }
       setSyncToasts((prev) => [...prev, ...newToasts])
       for (const t of newToasts) {
@@ -606,18 +609,66 @@ export default function App(): JSX.Element {
     }
   }
 
+  /**
+   * "No new games found — everything already installed is already in your
+   * library" used to be the answer to five different situations, one of which
+   * was a genuine bug hiding behind it. Says which one it was, the same way
+   * reportScan does for folder scans.
+   */
+  function reportImport(result: ImportResult, title: string, platform: string): void {
+    if (result.error) {
+      setInfoMessage({ title, message: `Couldn't import from ${platform}: ${result.error}` })
+      return
+    }
+    const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+    const list = (paths: string[]): string =>
+      paths.length > 4 ? `${paths.slice(0, 4).join(', ')} and ${paths.length - 4} more` : paths.join(', ')
+
+    const lines: string[] = []
+    const repointed = result.repointed ?? 0
+    if (result.imported > 0) lines.push(`Imported ${count(result.imported, 'game')} from ${platform}.`)
+    if (repointed > 0) {
+      lines.push(
+        `Repointed ${count(repointed, 'game')} at ${repointed === 1 ? 'its' : 'their'} current install folder ` +
+          `— ${repointed === 1 ? 'it had' : 'they had'} been moved to another ${platform} library.`
+      )
+    }
+    if (result.imported === 0 && repointed === 0) {
+      lines.push(
+        result.alreadyPresent > 0
+          ? `Nothing new — all ${count(result.alreadyPresent, 'game')} installed on ${platform} ` +
+            `${result.alreadyPresent === 1 ? 'is' : 'are'} already in your library.`
+          : `Nothing new — ${platform} reports no installed games.`
+      )
+    } else if (result.alreadyPresent > 0) {
+      lines.push(`${count(result.alreadyPresent, 'other game')} already in your library.`)
+    }
+    for (const overlap of result.overlaps ?? []) {
+      lines.push(
+        `"${overlap.name}" came in as a new entry: you already had one pointing at ${overlap.existingDir}, ` +
+          `while ${platform} has it installed at ${overlap.installedDir}. Both are in your library now — ` +
+          `merge or remove whichever you don't want.`
+      )
+    }
+    if (result.noExe && result.noExe.length > 0) {
+      lines.push(
+        `Found no executable in ${count(result.noExe.length, 'install folder')}, so ` +
+          `${result.noExe.length === 1 ? 'it was' : 'they were'} skipped: ${list(result.noExe)}.`
+      )
+    }
+    if (result.unreadable && result.unreadable.length > 0) {
+      lines.push(
+        `Couldn't read ${count(result.unreadable.length, 'library folder')} — anything installed there is ` +
+          `invisible to this import: ${list(result.unreadable)}.`
+      )
+    }
+    setInfoMessage({ title, message: lines.join('\n\n') })
+  }
+
   async function handleImportSteam(): Promise<void> {
     setBusy(true)
     try {
-      const result = await window.api.importSteamLibrary()
-      setInfoMessage({
-        title: 'Import Steam',
-        message: result.error
-          ? `Couldn't import from Steam: ${result.error}`
-          : result.imported === 0
-            ? 'No new Steam games found — everything already installed is already in your library.'
-            : `Imported ${result.imported} game(s) from Steam.`
-      })
+      reportImport(await window.api.importSteamLibrary(), 'Import Steam', 'Steam')
     } finally {
       setBusy(false)
     }
@@ -626,15 +677,7 @@ export default function App(): JSX.Element {
   async function handleImportEpic(): Promise<void> {
     setBusy(true)
     try {
-      const result = await window.api.importEpicLibrary()
-      setInfoMessage({
-        title: 'Import Epic',
-        message: result.error
-          ? `Couldn't import from Epic Games: ${result.error}`
-          : result.imported === 0
-            ? 'No new Epic Games titles found — everything already installed is already in your library.'
-            : `Imported ${result.imported} game(s) from Epic Games.`
-      })
+      reportImport(await window.api.importEpicLibrary(), 'Import Epic', 'Epic Games')
     } finally {
       setBusy(false)
     }
@@ -643,15 +686,7 @@ export default function App(): JSX.Element {
   async function handleImportGog(): Promise<void> {
     setBusy(true)
     try {
-      const result = await window.api.importGogLibrary()
-      setInfoMessage({
-        title: 'Import GOG',
-        message: result.error
-          ? `Couldn't import from GOG: ${result.error}`
-          : result.imported === 0
-            ? 'No new GOG games found — everything already installed is already in your library.'
-            : `Imported ${result.imported} game(s) from GOG.`
-      })
+      reportImport(await window.api.importGogLibrary(), 'Import GOG', 'GOG')
     } finally {
       setBusy(false)
     }
@@ -660,15 +695,7 @@ export default function App(): JSX.Element {
   async function handleImportUbisoft(): Promise<void> {
     setBusy(true)
     try {
-      const result = await window.api.importUbisoftLibrary()
-      setInfoMessage({
-        title: 'Import Ubisoft',
-        message: result.error
-          ? `Couldn't import from Ubisoft Connect: ${result.error}`
-          : result.imported === 0
-            ? 'No new Ubisoft games found — everything already installed is already in your library.'
-            : `Imported ${result.imported} game(s) from Ubisoft Connect.`
-      })
+      reportImport(await window.api.importUbisoftLibrary(), 'Import Ubisoft', 'Ubisoft Connect')
     } finally {
       setBusy(false)
     }

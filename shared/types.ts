@@ -288,8 +288,48 @@ export interface BackupListResult {
   error?: string
 }
 
+/**
+ * One installed game imported as its own entry even though another library
+ * entry already carried the same Steam appid.
+ *
+ * A `steamAppId` on a non-Steam entry is a metadata pointer written by the
+ * name matcher, not proof of identity, and it is often plain wrong - this
+ * library has "Watch Dogs" carrying Watch Dogs 2's appid. So the import never
+ * repoints such an entry at the Steam install; it says the two overlap and
+ * leaves the merge to the user, who has the duplicates tool for exactly that.
+ */
+export interface ImportOverlap {
+  name: string
+  /** Where the entry that already held the appid points. */
+  existingDir: string
+  /** Where the platform says the game is actually installed. */
+  installedDir: string
+}
+
+/**
+ * `{ imported: 0 }` used to be the whole answer, and it covered five different
+ * situations - nothing new, appid already taken, no executable in the install
+ * folder, a library folder that couldn't be read, a manifest rejected by its
+ * StateFlags - all rendered as "everything is already in your library". Folder
+ * scanning learned this lesson first (see `FolderScanResult`); the platform
+ * imports report the same way now.
+ */
 export interface ImportResult {
   imported: number
+  /** Installed games already in the library - genuinely nothing to do. */
+  alreadyPresent: number
+  /** Install folders holding no usable executable. Previously skipped in
+      silence, which is what made a found-but-unimportable game look like a
+      game that was never found. */
+  noExe: string[]
+  /** Entries repointed at the platform's current install folder after the
+      game was moved to a different library. */
+  repointed?: number
+  /** Steam library folders that couldn't be read this run. Anything installed
+      there is invisible to the import, so an unplugged drive or an unmounted
+      share has to be said out loud rather than counted as "nothing new". */
+  unreadable?: string[]
+  overlaps?: ImportOverlap[]
   error?: string
 }
 
@@ -426,6 +466,10 @@ export interface LibrarySyncEvent {
   source: 'Steam' | 'Epic' | 'GOG' | 'Ubisoft'
   added: number
   removed: number
+  /** Entries repointed at a moved install. Nothing entered or left the
+      library, but an exePath changed under the user - which is not something
+      to do silently. */
+  updated: number
 }
 
 export interface UpdateCheckResult {

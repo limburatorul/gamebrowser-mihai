@@ -6,6 +6,14 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.14.4',
+    changes: [
+      'Fixed: a game you had just installed on Steam could be skipped by the import, which then told you nothing new was found. It happened when the same game was already in your library from a folder scan: the automatic Steam lookup writes a store ID onto those entries so they can get cover art, and the import mistook that for the game having been imported already. The Steam install now comes in as its own entry, and the report tells you the two overlap so you can keep whichever you prefer.',
+      'Fixed: a Steam game moved to a different library folder kept pointing at the old path, which meant it could not be started at all. Both the import and the background sync now move the entry to where the game actually is, and say how many they moved.',
+      'The import buttons no longer answer everything with "nothing new". They say how many installed games were already in your library, which install folders held nothing that could be launched, and which Steam library folders could not be read — an unplugged drive or a disconnected network folder hides every game on it, and that used to look exactly like having nothing new.'
+    ]
+  },
+  {
     version: '2.14.3',
     changes: [
       'Fixed: updating could install the new version into the wrong folder and then start the old one again, so the same update kept being offered over and over. The installer is now told exactly where to install, and waits for the app to actually close first.',
