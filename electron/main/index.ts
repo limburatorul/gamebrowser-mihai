@@ -3025,6 +3025,9 @@ async function checkForUpdate(): Promise<UpdateCheckResult> {
  * installer's own "run after finish", which is the other reason the script
  * launches the app itself rather than leaving it to `runAfterFinish`.
  */
+/** Roughly two minutes at ~0.35s per iteration, measured on this machine. */
+const EXE_UNLOCK_MAX_TRIES = 340
+
 async function runInstallerAndRelaunch(installerPath: string): Promise<void> {
   const silent = !isPortableBuild()
   const installDir = dirname(process.execPath)
@@ -3032,15 +3035,39 @@ async function runInstallerAndRelaunch(installerPath: string): Promise<void> {
   const scriptPath = join(app.getPath('temp'), `gb-update-${Date.now()}.cmd`)
   const lines = [
     '@echo off',
-    // Wait for this exact process to be gone rather than guessing at a delay.
-    // The installer cannot replace files that are still open, and a fixed
-    // sleep is a race that a slow machine loses.
+    // Wait until the running exe can actually be opened for writing, rather
+    // than guessing at a delay. A fixed sleep is a race a slow machine loses.
+    //
+    // **Nothing in this loop may be an external .exe.** The script is spawned
+    // DETACHED, which on Windows means it has no console at all - and console
+    // utilities quietly break there. The 2.14.3 version of this loop was
+    // `tasklist /FI "PID eq N" | find "N"`, and on the user's machine
+    // `tasklist` produced no output while `find` blocked forever waiting on a
+    // stdin that was never connected: a visible "Find 5276" window that
+    // outlived the app by hours, with `ping` popping its own window on every
+    // iteration. Measured here: detached + tasklist|find hangs 100% of the
+    // time, and moving find's input from a pipe to a file does not help -
+    // find itself is the problem. So this uses only cmd built-ins:
+    // redirection, `call`, `goto`, `set /a`, `for /l`.
+    //
+    // Windows locks a running .exe image, so "can I open it for append?" is a
+    // direct test of the thing the installer actually needs - and a better one
+    // than the old PID check, because Electron's GPU and renderer children run
+    // from the same image and hold that lock too. `>>file call` opens the file
+    // and writes nothing.
+    'set /a tries=0',
     ':waitloop',
-    `tasklist /FI "PID eq ${process.pid}" 2>nul | find "${process.pid}" >nul`,
-    'if not errorlevel 1 (',
-    '  ping -n 2 127.0.0.1 >nul',
-    '  goto waitloop',
-    ')',
+    'set /a tries+=1',
+    // Bounded, so no future breakage here can spin forever the way that one
+    // did. ~0.35s per iteration, so this gives up after roughly two minutes
+    // and lets the installer try anyway rather than hanging silently.
+    `if %tries% gtr ${EXE_UNLOCK_MAX_TRIES} goto runinstaller`,
+    `2>nul (>>"${process.execPath}" call ) && goto runinstaller`,
+    // Pure-cmd delay. `timeout` and `ping` are both external exes, and `ping`
+    // is exactly what was flashing a console window every two seconds.
+    'for /l %%i in (1,1,700000) do @rem',
+    'goto waitloop',
+    ':runinstaller',
     // `/D` must be the LAST parameter and must NOT be quoted - that is NSIS's
     // rule, not a style choice. Without it the installer picks its own target:
     // InstallLocation is empty in these builds, so it falls back to the
@@ -3049,9 +3076,13 @@ async function runInstallerAndRelaunch(installerPath: string): Promise<void> {
     // which found the same update again - an endless loop.
     // Silent path only: a portable build's execPath is a temp extraction
     // folder, so aiming the installer at it would install into %TEMP%.
-    silent
-      ? `start /wait "" "${installerPath}" /S /D=${installDir}`
-      : `start /wait "" "${installerPath}"`,
+    // `call`, not `start /wait`. Same no-console reason as the loop above:
+    // measured here, `start /wait` launches the installer and then never
+    // returns in a detached cmd, so everything after it - including starting
+    // the app again - silently never happened. `call` runs it synchronously
+    // and comes back with an errorlevel. `start` without `/wait` is fine,
+    // which is why the relaunch below still uses it.
+    silent ? `call "${installerPath}" /S /D=${installDir}` : `call "${installerPath}"`,
     exeToStart ? `start "" "${exeToStart}"` : '',
     `del "%~f0"`
   ].filter(Boolean)

@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 // Newest first. Add a new entry here with every version bump.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.14.5',
+    changes: [
+      'Fixed: updating could leave a console window sitting on your desktop titled "Find <number>" and never finish. Closing it just brought up another one, over and over, while the update never installed. The step that waits for the app to close was using Windows command-line tools that stop working in the kind of hidden background window the update script runs in — one of them hung forever waiting for input that could never arrive.',
+      'The wait now checks the one thing that actually matters — whether the program file can be replaced yet — using nothing that can hang, and it gives up after about two minutes instead of waiting forever. Nothing flashes a window at you any more.',
+      'Also fixed in the same place: even once the wait finished, the app was never started again afterwards, because the command used to run the installer never returned either.',
+      'If you are stuck in that loop on 2.14.4 or earlier, it has to be escaped once by hand, since the broken part is in the version you are running: close any leftover console windows, download the installer from the release page and run it, pointing it at your existing Game Browser folder. Updates after that look after themselves.'
+    ]
+  },
+  {
     version: '2.14.4',
     changes: [
       'Fixed: a game you had just installed on Steam could be skipped by the import, which then told you nothing new was found. It happened when the same game was already in your library from a folder scan: the automatic Steam lookup writes a store ID onto those entries so they can get cover art, and the import mistook that for the game having been imported already. The Steam install now comes in as its own entry, and the report tells you the two overlap so you can keep whichever you prefer.',
